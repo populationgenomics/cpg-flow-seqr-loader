@@ -1,0 +1,63 @@
+from typing import TYPE_CHECKING
+
+from cpg_utils import hail_batch, config
+from cpg_flow import resources
+from cpg_seqr_loader import utils
+
+if TYPE_CHECKING:
+    from hailtop.batch.job import BashJob
+
+
+def train_vqsr_snp_model(
+    sites_only_vcf: str,
+    snp_model: str,
+    job_attrs: dict,
+) -> 'BashJob':
+    """Train VQSR SNPs on the sites-only VCF."""
+
+    local_resources = utils.get_localised_resources_for_vqsr()
+    siteonly_vcf = hail_batch.get_batch().read_input_group(
+        **{
+            utils.VCF_GZ: sites_only_vcf,
+            utils.VCF_GZ_TBI: sites_only_vcf + '.tbi',
+        },
+    )
+
+    snp_recalibrator_j = hail_batch.get_batch().new_job(
+        'TrainVqsrSnpModelOnCombinerData',
+        job_attrs | {'tool': 'gatk VariantRecalibrator'},
+    )
+    snp_recalibrator_j.image(config.config_retrieve(['images', 'gatk']))
+
+    # We run it for the entire dataset in one job, so can take an entire instance.
+    res = resources.HIGHMEM.set_resources(snp_recalibrator_j, fraction=1, storage_gb=utils.SNPS_RECAL_DISC_SIZE)
+
+    tranche_cmdl = ' '.join([f'-tranche {v}' for v in utils.SNP_RECALIBRATION_TRANCHE_VALUES])
+    an_cmdl = ' '.join(
+        [f'-an {v}' for v in utils.SNP_ALLELE_SPECIFIC_FEATURES],
+    )
+    snp_recalibrator_j.command(
+        f"""set -euo pipefail
+        gatk --java-options \
+          "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
+          VariantRecalibrator \\
+          -V {siteonly_vcf['vcf.gz']} \\
+          -O {snp_recalibrator_j.recalibration} \\
+          --tranches-file {snp_recalibrator_j.tranches} \\
+          --trust-all-polymorphic \\
+          {tranche_cmdl} \\
+          {an_cmdl} \\
+          -mode SNP \\
+          --use-allele-specific-annotations \\
+          --sample-every-Nth-variant 10 \\
+          --output-model {snp_recalibrator_j.model_file} \\
+          --max-gaussians 6 \\
+          -resource:hapmap,known=false,training=true,truth=true,prior=15 {local_resources['hapmap'].base} \\
+          -resource:omni,known=false,training=true,truth=true,prior=12 {local_resources['omni'].base} \\
+          -resource:1000G,known=false,training=true,truth=false,prior=10 {local_resources['one_thousand_genomes'].base} \\
+          -resource:dbsnp,known=true,training=false,truth=false,prior=7 {local_resources['dbsnp'].base}
+          """,
+    )
+
+    hail_batch.get_batch().write_output(snp_recalibrator_j.model_file, snp_model)
+    return snp_recalibrator_j
