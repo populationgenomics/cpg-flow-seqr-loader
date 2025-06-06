@@ -7,6 +7,4 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
-def generate_combiner_jobs() -> 'BashJob':
-    ...
-
+def generate_combiner_jobs() -> 'BashJob': ...

@@ -8,14 +8,13 @@ if TYPE_CHECKING:
 
 
 def create_and_run_compose_script(
-        multicohort: targets.MultiCohort,
-        manifest_file: str,
-        manifest_dir: str,
-        output: Path,
-        tmp_dir: Path,
-        job_attrs: dict,
+    multicohort: targets.MultiCohort,
+    manifest_file: str,
+    manifest_dir: str,
+    output: Path,
+    tmp_dir: Path,
+    job_attrs: dict,
 ) -> list['BashJob']:
-
     local_manifest = hail_batch.get_batch().read_input(manifest_file)
 
     # generate a bash script to do the composition

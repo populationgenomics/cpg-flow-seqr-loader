@@ -21,7 +21,9 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow>=v0.2.4',
+    'cpg-flow>=v0.2.5',
+    'elasticsearch',
+    'loguru>=0.7.3',
 ]
 
 [project.urls]
@@ -45,7 +47,7 @@ package-dir = {"" = "src"}
 include_package_data = true
 
 [options.package_data]
-'workflow_name'=  ['config_template.toml']
+'cpg_seqr_loader'=  ['config_template.toml']
 
 [tool.black]
 line-length = 120
@@ -102,7 +104,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
-
 
 [tool.bumpversion]
 current_version = "0.1.0"

@@ -56,7 +56,6 @@ def main(
 
     # check here to see if we can reuse the dense MT
     if not utils.can_reuse(dense_mt_out):
-
         loguru.logger.info(f'Densifying data, using {partitions} partitions')
 
         # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data

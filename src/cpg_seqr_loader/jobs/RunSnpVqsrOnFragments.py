@@ -39,8 +39,10 @@ def quick_and_easy_bcftools_concat(
     )
     job.command(
         f"""
-    bcftools concat --threads {res.get_nthreads() - 1} -a {' '.join(vcf['vcf.gz'] for vcf in input_vcfs)} \
-    -Oz -o {job.output['vcf.gz']}
+    bcftools concat \\
+        --threads {res.get_nthreads() - 1} \\
+        -a {' '.join(vcf['vcf.gz'] for vcf in input_vcfs)} \\
+        -Oz -o {job.output['vcf.gz']}
     tabix -p vcf {job.output['vcf.gz']}
     tabix -p vcf -C {job.output['vcf.gz']}
     """,
@@ -122,15 +124,14 @@ def apply_snp_vqsr_to_fragments(
             chunk_job.command(
                 f"""
             gatk --java-options "{res.java_mem_options()}" \\
-            ApplyVQSR \\
-            -O {chunk_job[counter_string]['vcf.gz']} \\
-            -V {vcf_resource['vcf.gz']} \\
-            --recal-file {recal_resource.recal} \\
-            --tranches-file {tranches_in_batch} \\
-            --truth-sensitivity-filter-level {snp_filter_level} \\
-            --use-allele-specific-annotations \\
-            -mode SNP
-
+                ApplyVQSR \\
+                -O {chunk_job[counter_string]['vcf.gz']} \\
+                -V {vcf_resource['vcf.gz']} \\
+                --recal-file {recal_resource.recal} \\
+                --tranches-file {tranches_in_batch} \\
+                --truth-sensitivity-filter-level {snp_filter_level} \\
+                --use-allele-specific-annotations \\
+                -mode SNP
             tabix -p vcf -f {chunk_job[counter_string]['vcf.gz']}
             """,
             )
