@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 """
 Creates a Hail Batch job to run the command line VEP tool.
 """

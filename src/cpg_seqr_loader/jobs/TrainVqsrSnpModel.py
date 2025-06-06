@@ -15,7 +15,7 @@ def train_vqsr_snp_model(
 ) -> 'BashJob':
     """Train VQSR SNPs on the sites-only VCF."""
 
-    local_resources = utils.get_localised_resources_for_vqsr()
+    local_res = utils.get_localised_resources_for_vqsr()
     siteonly_vcf = hail_batch.get_batch().read_input_group(
         **{
             utils.VCF_GZ: sites_only_vcf,
@@ -52,10 +52,10 @@ def train_vqsr_snp_model(
           --sample-every-Nth-variant 10 \\
           --output-model {snp_recalibrator_j.model_file} \\
           --max-gaussians 6 \\
-          -resource:hapmap,known=false,training=true,truth=true,prior=15 {local_resources['hapmap'].base} \\
-          -resource:omni,known=false,training=true,truth=true,prior=12 {local_resources['omni'].base} \\
-          -resource:1000G,known=false,training=true,truth=false,prior=10 {local_resources['one_thousand_genomes'].base} \\
-          -resource:dbsnp,known=true,training=false,truth=false,prior=7 {local_resources['dbsnp'].base}
+          -resource:hapmap,known=false,training=true,truth=true,prior=15 {local_res['hapmap'].base} \\
+          -resource:omni,known=false,training=true,truth=true,prior=12 {local_res['omni'].base} \\
+          -resource:1000G,known=false,training=true,truth=false,prior=10 {local_res['one_thousand_genomes'].base} \\
+          -resource:dbsnp,known=true,training=false,truth=false,prior=7 {local_res['dbsnp'].base}
           """,
     )
 

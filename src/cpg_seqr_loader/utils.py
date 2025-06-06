@@ -11,7 +11,7 @@ import loguru
 import hail as hl
 
 from cpg_utils import config, hail_batch, Path
-
+from metamist.graphql import gql, query
 from cpg_flow import targets
 
 
@@ -32,6 +32,154 @@ VCF_BGZ = 'vcf.bgz'
 VCF_BGZ_TBI = 'vcf.bgz.tbi'
 VCF_GZ = 'vcf.gz'
 VCF_GZ_TBI = 'vcf.gz.tbi'
+
+STANDARD_FEATURES = [
+    'ReadPosRankSum',
+    'MQRankSum',
+    'QD',
+    'FS',
+    'SOR',
+]
+SNP_STANDARD_FEATURES = [*STANDARD_FEATURES, 'MQ']
+INDEL_STANDARD_FEATURES = STANDARD_FEATURES
+
+ALLELE_SPECIFIC_FEATURES = [
+    'AS_ReadPosRankSum',
+    'AS_MQRankSum',
+    'AS_QD',
+    'AS_FS',
+    'AS_SOR',
+    # Not using depth for the following reasons:
+    # 1. The Broad pipelines don't use it;
+    # 2. -G AS_StandardAnnotation flag to GenotypeGVCFs doesn't include it;
+    # 3. For exomes, depth is an irrelevant feature and should be skipped:
+    # 'AS_VarDP'
+    # Note that for consistency, we also skip it for WGS.
+]
+SNP_ALLELE_SPECIFIC_FEATURES = [*ALLELE_SPECIFIC_FEATURES, 'AS_MQ']
+INDEL_ALLELE_SPECIFIC_FEATURES = ALLELE_SPECIFIC_FEATURES
+
+SNP_RECALIBRATION_TRANCHE_VALUES = [
+    100.0,
+    99.95,
+    99.9,
+    99.8,
+    99.6,
+    99.5,
+    99.4,
+    99.3,
+    99.0,
+    98.0,
+    97.0,
+    90.0,
+]
+INDEL_RECALIBRATION_TRANCHE_VALUES = [
+    100.0,
+    99.95,
+    99.9,
+    99.5,
+    99.0,
+    97.0,
+    96.0,
+    95.0,
+    94.0,
+    93.5,
+    93.0,
+    92.0,
+    91.0,
+    90.0,
+]
+
+
+LATEST_ANALYSIS_QUERY = gql(
+    """
+    query LatestAnalysisEntry($dataset: String!, $type: String!) {
+        project(name: $dataset) {
+            analyses(active: {eq: true}, type: {eq: $type}, status: {eq: COMPLETED}) {
+                meta
+                output
+                sequencingGroups {
+                    id
+                }
+                timestampCompleted
+            }
+        }
+    }
+""",
+)
+
+SPECIFIC_VDS_QUERY = gql(
+    """
+    query getVDSByAnalysisId($vds_id: Int!) {
+        analyses(id: {eq: $vds_id}) {
+            output
+            sequencingGroups {
+                id
+            }
+        }
+    }
+""",
+)
+
+
+def query_for_specific_vds(vds_id: int) -> tuple[str, set[str]] | None:
+    """
+    query for a specific analysis of type entry_type for a dataset
+    if found, return the set of SG IDs in the VDS (using the metadata)
+
+    - stolen from the cpg_workflows.large_cohort.combiner Stage, but duplicated here so we can split pipelines without
+      further code changes
+
+    Args:
+        vds_id (int): analysis id to query for
+
+    Returns:
+        either None if the analysis wasn't found, or a set of SG IDs in the VDS
+    """
+
+    # query for the exact, single analysis entry
+    query_results: dict[str, dict] = query(SPECIFIC_VDS_QUERY, variables={'vds_id': vds_id})
+
+    if not query_results['analyses']:
+        return None
+    vds_path: str = query_results['analyses'][0]['output']
+    sg_ids = {sg['id'] for sg in query_results['analyses'][0]['sequencingGroups']}
+    return vds_path, sg_ids
+
+
+def query_for_latest_vds(dataset: str, entry_type: str = 'combiner') -> dict | None:
+    """
+    query for the latest analysis of type entry_type for a dataset
+    Args:
+        dataset (str): project to query for
+        entry_type (str): type of analysis entry to query for
+    Returns:
+        str, the path to the latest analysis
+    """
+
+    # hot swapping to a string we can freely modify
+    query_dataset = dataset
+
+    if config.config_retrieve(['workflow', 'access_level']) == 'test' and 'test' not in query_dataset:
+        query_dataset += '-test'
+
+    result = query(LATEST_ANALYSIS_QUERY, variables={'dataset': query_dataset, 'type': entry_type})
+
+    analyses_by_date = {}
+
+    for analysis in result['project']['analyses']:
+        if analysis['output'] and (
+            analysis['meta']['sequencing_type'] == config.config_retrieve(['workflow', 'sequencing_type'])
+        ):
+            analyses_by_date[analysis['timestampCompleted']] = analysis
+
+    if not analyses_by_date:
+        loguru.logger.warning(f'No analysis of type {entry_type} found for dataset {query_dataset}')
+        return None
+
+    # return the latest, determined by a sort on timestamp
+    # 2023-10-10... > 2023-10-09..., so sort as strings
+    return analyses_by_date[sorted(analyses_by_date)[-1]]
 
 
 @functools.lru_cache(1)

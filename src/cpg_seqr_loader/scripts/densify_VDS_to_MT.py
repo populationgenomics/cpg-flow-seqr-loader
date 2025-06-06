@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 """
 takes a path to a VDS, and an output path
 densifies the VDS into a MatrixTable
@@ -43,7 +41,7 @@ def main(
         vds_in (str):
         dense_mt_out (str):
         sites_only (str): optional, if used write a sites-only VCF directory to this location
-        separate_header (str): optional, if used write a sites-only VCF directory with a separate header to this location
+        separate_header (str): optional, write a sites-only VCF directory with a separate header to this location
     """
 
     hail_batch.init_batch(

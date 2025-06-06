@@ -15,10 +15,7 @@ def create_subset_mt_job(
     output_mt: Path,
     job_attrs: dict[str, str],
 ) -> 'BashJob':
-    if family_sgs := utils.get_family_sequencing_groups(dataset):
-        family_sg_ids = family_sgs['family_sg_ids']
-    else:
-        family_sg_ids = None
+    family_sg_ids = family_sgs['family_sg_ids'] if (family_sgs := utils.get_family_sequencing_groups(dataset)) else None
 
     # write a list of all the SG IDs to retain
     # don't try and extract samples which didn't have a gVCF

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from cpg_utils import hail_batch, config, Path
-from cpg_flow import targets, utils as cpg_flow_utils
+from cpg_flow import utils as cpg_flow_utils
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
@@ -20,7 +20,7 @@ def create_annotate_cohort_job(
     )
 
     # prevent job failures when constructing HUGE file/directory names using Hail default behaviour
-    job._dirname = f'{index_name}-{job._token}'
+    job._dirname = f'{index_name}-{job._token}'  # noqa: SLF001
 
     # Use a non-preemptible instance if spot_instance is False in the config
     job = job.spot(is_spot=config.config_retrieve(['workflow', 'es_index', 'spot_instance'], default=True))

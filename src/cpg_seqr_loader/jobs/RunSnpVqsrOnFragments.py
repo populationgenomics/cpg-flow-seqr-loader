@@ -93,7 +93,9 @@ def apply_snp_vqsr_to_fragments(
     snp_filter_level = config.config_retrieve(['vqsr', 'snp_filter_level'])
 
     for chunk_counter, vcfs_recals in enumerate(
-        cpg_flow_utils.generator_chunks(zip(vcf_resources, snps_recal_resources), utils.RECALIBRATION_PER_JOB),
+        cpg_flow_utils.generator_chunks(
+            zip(vcf_resources, snps_recal_resources, strict=False), utils.RECALIBRATION_PER_JOB
+        ),
     ):
         chunk_job = hail_batch.get_batch().new_bash_job(
             f'RunTrainedSnpVqsrOnCombinerFragments, Chunk {chunk_counter}', job_attrs

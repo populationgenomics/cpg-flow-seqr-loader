@@ -9,8 +9,8 @@ __all__ = [
     'GatherTrainedVqsrSnpTranches',
     'RunIndelVqsr',
     'RunSnpVqsrOnFragments',
-    'TrainVqsrIndels',
-    'TrainVqsrSnps',
-    'TrainVqsrSnpTranches',
     'SubsetMtToDatasetWithHail',
+    'TrainVqsrIndels',
+    'TrainVqsrSnpModel.py',
+    'TrainVqsrSnpTranches',
 ]

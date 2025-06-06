@@ -109,8 +109,7 @@ def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
     # index would work, but for the second one it would throw an index out of bounds:
     # `HailException: array index out of bounds: index=1, length=1`
     vqsr_ht = vqsr_ht.annotate(info=vqsr_ht.info.drop(*[f for f in vqsr_ht.info if (f.startswith('AS_') or f == 'SB')]))
-    vqsr_ht = vqsr_ht.checkpoint(str(ht_path), overwrite=True)
-    return vqsr_ht
+    return vqsr_ht.checkpoint(str(ht_path), overwrite=True)
 
 
 def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
@@ -282,11 +281,9 @@ def annotate_cohort(
         primate_ai=mt.ref_data.primate_ai,
         splice_ai=mt.ref_data.splice_ai,
         clinvar=hl.struct(
-            **{
-                'allele_id': mt.clinvar_data.info.ALLELEID,
-                'clinical_significance': hl.delimit(mt.clinvar_data.info.CLNSIG),
-                'gold_stars': mt.clinvar_data.gold_stars,
-            },
+            allele_id=mt.clinvar_data.info.ALLELEID,
+            clinical_significance=hl.delimit(mt.clinvar_data.info.CLNSIG),
+            gold_stars=mt.clinvar_data.gold_stars,
         ),
     )
     mt = mt.annotate_globals(

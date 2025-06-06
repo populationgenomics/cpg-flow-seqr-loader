@@ -21,11 +21,13 @@ def get_expr_for_contig_number(locus: hl.expr.LocusExpression) -> hl.expr.Int32E
 
 
 def get_expr_for_variant_ids(
-    locus: hl.expr.LocusExpression, alleles: hl.expr.ArrayExpression, max_length: int = None
+    locus: hl.expr.LocusExpression,
+    alleles: hl.expr.ArrayExpression,
+    max_length: int | None = None,
 ) -> hl.expr.ArrayExpression:
     """Return a list of variant ids - one for each alt allele in the variant"""
 
-    def compute_variant_id(alt):
+    def compute_variant_id(alt) -> str:
         variant_id = locus.contig + '-' + hl.str(locus.position) + '-' + alleles[0] + '-' + alt
         if max_length is not None:
             variant_id = variant_id[:max_length]

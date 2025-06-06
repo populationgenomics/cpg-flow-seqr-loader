@@ -61,7 +61,7 @@ def _elasticsearch_mapping_for_type(dtype):
     """
     if isinstance(dtype, hl.tstruct):
         return {'properties': {field: _elasticsearch_mapping_for_type(dtype[field]) for field in dtype.fields}}
-    if isinstance(dtype, (hl.tarray, hl.tset)):
+    if isinstance(dtype, hl.tarray | hl.tset):
         element_mapping = _elasticsearch_mapping_for_type(dtype.element_type)
         if isinstance(dtype.element_type, hl.tstruct):
             element_mapping['type'] = 'nested'
@@ -85,7 +85,7 @@ def encode_field_name(s):
     https://discuss.elastic.co/t/illegal-characters-in-elasticsearch-field-names/17196/2
     """
     field_name = io.StringIO()
-    for i, c in enumerate(s):
+    for c in s:
         if c == ES_FIELD_NAME_ESCAPE_CHAR:
             field_name.write(2 * ES_FIELD_NAME_ESCAPE_CHAR)
         elif c in ES_FIELD_NAME_SPECIAL_CHAR_MAP:
@@ -98,8 +98,7 @@ def encode_field_name(s):
     # escape 1st char if necessary
     if any(field_name.startswith(c) for c in ES_FIELD_NAME_BAD_LEADING_CHARS):
         return ES_FIELD_NAME_ESCAPE_CHAR + field_name
-    else:
-        return field_name
+    return field_name
 
 
 def struct_to_dict(struct):
@@ -137,17 +136,13 @@ class ElasticsearchClient:
         Wait for shards to move off of the loading nodes before connecting to seqr
         https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7a8c629054e94533615e7d2/hail_scripts/elasticsearch/elasticsearch_client_v7.py#L134
         """
-        for i in range(num_attempts):
+        for _i in range(num_attempts):
             shards = self.es.cat.shards(index=index_name)
             if LOADING_NODES_NAME not in shards:
-                logging.warning('Shards are on {}'.format(shards))
+                logging.warning(f'Shards are on {shards}')
                 return
-            logging.warning(
-                'Waiting for {} shards to transfer off the es-data-loading nodes: \n{}'.format(
-                    len(shards.strip().split('\n')),
-                    shards,
-                ),
-            )
+            num_shards = len(shards.strip().split('\n'))
+            logging.warning(f'Waiting for {num_shards} shards to transfer off the es-data-loading nodes: \n{shards}')
             time.sleep(5)
 
         raise Exception('Shards did not transfer off loading nodes')
@@ -185,11 +180,11 @@ class ElasticsearchClient:
             }
 
             logging.info(f'create_mapping - elasticsearch schema: \n{elasticsearch_schema}')
-            logging.info('==> creating elasticsearch index {}'.format(index_name))
+            logging.info(f'==> creating elasticsearch index {index_name}')
 
             self.es.indices.create(index=index_name, body=body)
 
-    def export_table_to_elasticsearch(self, table, **kwargs):
+    def export_table_to_elasticsearch(self, table, **kwargs):  # noqa: ANN003
         es_config = kwargs.get('elasticsearch_config', {})
         # to remove the write-null-values behaviour, remove the es.spark.dataframe.write.null entry
         es_config.update(

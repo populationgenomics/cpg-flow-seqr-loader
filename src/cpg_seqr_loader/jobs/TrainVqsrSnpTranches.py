@@ -33,10 +33,10 @@ def train_vqsr_snp_tranches(
     local_resources = utils.get_localised_resources_for_vqsr()
 
     # the list of all jobs (per-fragment, and the summary)
-    scatter_jobs: list['BashJob'] = []
+    scatter_jobs: list[BashJob] = []
 
     # to hold the resulting parts, as Resources
-    snp_tranche_fragments: list['ResourceFile'] = []
+    snp_tranche_fragments: list[ResourceFile] = []
 
     # if we start this as -1, we can increment at the start of the loop, making the index counting easier to track
     vcf_counter = -1
@@ -118,7 +118,7 @@ def train_vqsr_snp_tranches(
                   -resource:1000G,known=false,training=true,truth=false,prior=10 {local_resources['one_thousand_genomes'].base} \\
                   -resource:dbsnp,known=true,training=false,truth=false,prior=7 {local_resources['dbsnp'].base}
                 touch {chunk_job[counter_string]['recal.idx']}
-                """,
+                """,  # noqa: E501
             )
 
             # write the results out to GCP

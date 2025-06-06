@@ -123,7 +123,7 @@ def get_expr_for_formatted_hgvs(csq):
             csq.hgvsp.contains('=') | csq.hgvsp.contains('%3D'),
             hl.bind(
                 lambda protein_letters: 'p.' + protein_letters + hl.str(csq.protein_start) + protein_letters,
-                hl.delimit(csq.amino_acids.split('').map(lambda l: PROTEIN_LETTERS_1TO3.get(l)), ''),
+                hl.delimit(csq.amino_acids.split('').map(lambda l: PROTEIN_LETTERS_1TO3.get(l)), ''),  # noqa: E741
             ),
             csq.hgvsp.split(':')[-1],
         ),
@@ -131,7 +131,9 @@ def get_expr_for_formatted_hgvs(csq):
 
 
 def get_expr_for_vep_sorted_transcript_consequences_array(
-    vep_root, include_coding_annotations=True, omit_consequences=OMIT_CONSEQUENCE_TERMS
+    vep_root,
+    include_coding_annotations=True,
+    omit_consequences=None,
 ):
     """Sort transcripts by 3 properties:
 
@@ -156,6 +158,8 @@ def get_expr_for_vep_sorted_transcript_consequences_array(
         include_coding_annotations (bool): if True, fields relevant to protein-coding variants will be included
     """
 
+    if omit_consequences is None:
+        omit_consequences = OMIT_CONSEQUENCE_TERMS
     selected_annotations = [
         'biotype',
         'canonical',

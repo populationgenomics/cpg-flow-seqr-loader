@@ -100,10 +100,18 @@ ignore = [
     "C901", # method is too complex (> 10 conditions)
     "N999", # invalid module name (not lower-case and potholes)
     "I001", # Import block is un-sorted or un-formatted (to remove soon)
+    "PLR2004", # Magic value used in comparison, consider replacing with a constant
 ]
 
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.per-file-ignores]
+# suppress the ARG002 "Unused method argument" warning in the stages.py file
+## - we don't need generic cpg-flow arguments for every Stage, but need to fit the required method signature
+"src/cpg_seqr_loader/stages.py" = ["ARG002"]
+"src/cpg_seqr_loader/scripts/mt_to_es.py" = ["ANN202"]
+"src/cpg_seqr_loader/scripts/annotate_cohort.py" = ["E501"]
 
 [tool.bumpversion]
 current_version = "0.1.0"
