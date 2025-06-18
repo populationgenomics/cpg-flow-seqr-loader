@@ -35,8 +35,6 @@ SHARD_MANIFEST = 'shard-manifest.txt'
 
 @stage.stage(analysis_type='combiner')
 class CombineGvcfsIntoVdsStage(stage.MultiCohortStage):
-    """undecided if this will be reimplemented"""
-
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
         return self.prefix / f'{multicohort.name}.vds'
 
@@ -53,11 +51,7 @@ class CombineGvcfsIntoVdsStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(
-    required_stages=[CombineGvcfsIntoVdsStage],
-    analysis_type='matrixtable',
-    analysis_keys=['mt'],
-)
+@stage.stage(required_stages=[CombineGvcfsIntoVdsStage])
 class CreateDenseMtFromVdsWithHailStage(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
         """
@@ -66,15 +60,14 @@ class CreateDenseMtFromVdsWithHailStage(stage.MultiCohortStage):
 
         Needs a range of INFO fields to be present in the VCF
         """
-        prefix = self.prefix
         temp_prefix = self.tmp_prefix
 
         return {
-            'mt': prefix / f'{multicohort.name}.mt',
+            'mt': temp_prefix / f'{multicohort.name}.mt',
             # this will be the write path for fragments of sites-only VCF (header-per-shard)
-            'hps_vcf_dir': str(prefix / f'{multicohort.name}.vcf.bgz'),
+            'hps_vcf_dir': str(temp_prefix / f'{multicohort.name}.vcf.bgz'),
             # this will be the file which contains the name of all fragments (header-per-shard)
-            'hps_shard_manifest': prefix / f'{multicohort.name}.vcf.bgz' / SHARD_MANIFEST,
+            'hps_shard_manifest': temp_prefix / f'{multicohort.name}.vcf.bgz' / SHARD_MANIFEST,
             # this will be the write path for fragments of sites-only VCF (separate header)
             'separate_header_vcf_dir': str(temp_prefix / f'{multicohort.name}_separate.vcf.bgz'),
             # this will be the file which contains the name of all fragments (separate header)
@@ -145,7 +138,7 @@ class TrainVqsrIndelModelStage(stage.MultiCohortStage):
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
-        prefix = self.prefix
+        prefix = self.tmp_prefix
         return {
             'indel_recalibrations': prefix / 'indel.recal',
             'indel_tranches': prefix / 'indel.tranches',
@@ -177,7 +170,7 @@ class TrainVqsrSnpModelStage(stage.MultiCohortStage):
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        return self.prefix / 'snp_model'
+        return self.tmp_prefix / 'snp_model'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         """
@@ -227,7 +220,7 @@ class GatherTrainedVqsrSnpTranchesStage(stage.MultiCohortStage):
     """Scattered training of VQSR tranches for SNPs."""
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        return self.prefix / 'snp_tranches'
+        return self.tmp_prefix / 'snp_tranches'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         manifest_file = inputs.as_path(
@@ -279,7 +272,6 @@ class RunSnpVqsrOnFragmentsStage(stage.MultiCohortStage):
 
 
 @stage.stage(
-    analysis_type='qc',
     required_stages=[
         RunSnpVqsrOnFragmentsStage,
         TrainVqsrIndelModelStage,
@@ -291,7 +283,7 @@ class RunIndelVqsrStage(stage.MultiCohortStage):
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        return self.prefix / 'vqsr_snps_and_indels.vcf.gz'
+        return self.tmp_prefix / 'vqsr_snps_and_indels.vcf.gz'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
@@ -321,11 +313,7 @@ class RunIndelVqsrStage(stage.MultiCohortStage):
         )
 
 
-# TODO use a proper analysis type
-@stage.stage(
-    analysis_type='custom',
-    required_stages=[CreateDenseMtFromVdsWithHailStage],
-)
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHailStage])
 class AnnotateVcfsWithVepStage(stage.MultiCohortStage):
     """
     Annotate VCF with VEP.
@@ -335,7 +323,7 @@ class AnnotateVcfsWithVepStage(stage.MultiCohortStage):
         """
         Should this be in tmp? We'll never use it again maybe?
         """
-        return self.prefix / 'vep.ht'
+        return self.tmp_prefix / 'vep.ht'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
@@ -457,6 +445,7 @@ class SubsetMtToDatasetWithHailStage(stage.DatasetStage):
         AnnotateCohortStage,
         SubsetMtToDatasetWithHailStage,
     ],
+    # analyses recorded to pass through to Metamist/other workflows
     analysis_type='matrixtable',
 )
 class AnnotateDatasetStage(stage.DatasetStage):
@@ -465,13 +454,17 @@ class AnnotateDatasetStage(stage.DatasetStage):
         Expected to generate a matrix table
         """
         if family_sgs := utils.get_family_sequencing_groups(dataset):
-            return (
-                dataset.prefix()
-                / 'mt'
-                / self.name
-                / f'{workflow.get_workflow().output_version}-{dataset.name}-{family_sgs["name_suffix"]}.mt'
-            )
-        return dataset.prefix() / 'mt' / self.name / f'{workflow.get_workflow().output_version}-{dataset.name}.mt'
+            mt_name = f'{dataset.name}-{family_sgs["name_suffix"]}.mt'
+        else:
+            mt_name = f'{dataset.name}.mt'
+
+        return (
+            dataset.prefix()
+            / workflow.get_workflow().name
+            / workflow.get_workflow().output_version
+            / self.name
+            / mt_name
+        )
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
         # only create final MTs for datasets specified in the config
@@ -516,9 +509,9 @@ class ExportMtAsEsIndexStage(stage.DatasetStage):
         sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
         prelude = f'{dataset.name}-{sequencing_type}'
         if family_sgs := utils.get_family_sequencing_groups(dataset):
-            index_name = f'{prelude}-{family_sgs["name_suffix"]}-{workflow.get_workflow().run_timestamp}'.lower()
+            index_name = f'{prelude}-{family_sgs["name_suffix"]}-{workflow.get_workflow().output_version}'.lower()
         else:
-            index_name = f'{prelude}-{workflow.get_workflow().run_timestamp}'.lower()
+            index_name = f'{prelude}-{workflow.get_workflow().output_version}'.lower()
         return {
             'index_name': index_name,
             'done_flag': dataset.prefix() / 'es' / f'{index_name}.done',
