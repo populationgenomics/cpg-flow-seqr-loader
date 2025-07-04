@@ -14,14 +14,12 @@ Additional arguments:
 
 import argparse
 
-import loguru
-
 import hail as hl
+import loguru
+from cpg_flow import utils
 from cpg_utils import config, hail_batch
 from gnomad.utils.sparse_mt import default_compute_info
 from gnomad.utils.vcf import adjust_vcf_incompatible_types
-
-from cpg_flow import utils
 
 
 def main(

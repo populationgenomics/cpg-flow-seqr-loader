@@ -1,12 +1,14 @@
 from typing import TYPE_CHECKING
 
-from cpg_utils import hail_batch, config, Path
-from cpg_flow import resources, utils as cpg_flow_utils
+from cpg_flow import resources
+from cpg_flow import utils as cpg_flow_utils
+from cpg_utils import Path, config, hail_batch
+
 from cpg_seqr_loader import utils
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
-    from hailtop.batch.resource import ResourceGroup, Resource
+    from hailtop.batch.resource import Resource, ResourceGroup
 
 
 def quick_and_easy_bcftools_concat(

@@ -6,8 +6,7 @@ from argparse import ArgumentParser
 
 import hail as hl
 import loguru
-
-from cpg_utils import to_path, config, hail_batch
+from cpg_utils import config, hail_batch, to_path
 
 
 def subset_mt_to_samples(input_mt: str, sg_id_file: str, output: str):

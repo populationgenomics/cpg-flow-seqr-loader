@@ -1,6 +1,5 @@
 import hail as hl
 
-
 # Consequence terms in order of severity (more severe to less severe) as estimated by Ensembl.
 # See https://ensembl.org/info/genome/variation/prediction/predicted_data.html
 CONSEQUENCE_TERMS = [

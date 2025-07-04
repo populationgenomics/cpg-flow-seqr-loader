@@ -3,31 +3,27 @@ All Stages relating to the seqr_loader pipeline, reimplemented from scratch to
 use the gVCF combiner instead of joint-calling.
 """
 
-from google.api_core.exceptions import PermissionDenied
-
 import loguru
-
 from cpg_flow import stage, targets, workflow
+from cpg_utils import Path, cloud, config
+from google.api_core.exceptions import PermissionDenied
 
 from cpg_seqr_loader import utils
 from cpg_seqr_loader.jobs.AnnotateCohort import create_annotate_cohort_job
 from cpg_seqr_loader.jobs.AnnotateDataset import create_annotate_dataset_job
-from cpg_seqr_loader.jobs.AnnotateVcfsWithVep import add_vep_jobs
 from cpg_seqr_loader.jobs.AnnotatedDatasetMtToVcf import cohort_to_vcf_job
-from cpg_seqr_loader.jobs.ConcatenateVcfFragmentsWithGcloud import create_and_run_compose_script
+from cpg_seqr_loader.jobs.AnnotateVcfsWithVep import add_vep_jobs
 from cpg_seqr_loader.jobs.CombineGvcfsIntoVds import create_combiner_jobs
+from cpg_seqr_loader.jobs.ConcatenateVcfFragmentsWithGcloud import create_and_run_compose_script
 from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_jobs
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
 from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
+from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
 from cpg_seqr_loader.jobs.TrainVqsrIndels import train_vqsr_indel_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpModel import train_vqsr_snp_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
-from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
-
-
-from cpg_utils import cloud, config, Path
 
 SHARD_MANIFEST = 'shard-manifest.txt'
 

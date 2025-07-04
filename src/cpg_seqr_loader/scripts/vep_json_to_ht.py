@@ -7,7 +7,6 @@ Decoding a JSON string is an expensive operation, so we provide a fixed schema.
 import argparse
 
 import hail as hl
-
 from cpg_utils import config, hail_batch
 
 

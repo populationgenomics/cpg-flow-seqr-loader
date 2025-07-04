@@ -1,9 +1,10 @@
 from typing import TYPE_CHECKING
 
 import loguru
+from cpg_flow import resources
+from cpg_flow import utils as cpg_flow_utils
+from cpg_utils import Path, config, hail_batch
 
-from cpg_utils import hail_batch, config, Path
-from cpg_flow import resources, utils as cpg_flow_utils
 from cpg_seqr_loader import utils
 
 if TYPE_CHECKING:

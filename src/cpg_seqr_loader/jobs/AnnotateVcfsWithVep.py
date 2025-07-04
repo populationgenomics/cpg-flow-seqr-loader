@@ -5,10 +5,10 @@ Creates a Hail Batch job to run the command line VEP tool.
 from typing import TYPE_CHECKING
 
 import hailtop.batch as hb
-
-from cpg_utils import Path, to_path, config, hail_batch
-from cpg_seqr_loader import utils
 from cpg_flow import utils as cpg_flow_utils
+from cpg_utils import Path, config, hail_batch, to_path
+
+from cpg_seqr_loader import utils
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob

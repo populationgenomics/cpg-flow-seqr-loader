@@ -6,19 +6,16 @@ https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7
 https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7a8c629054e94533615e7d2/luigi_pipeline/lib/hail_tasks.py
 """
 
-import logging
-import math
-import time
-import sys
 import argparse
 import io
+import logging
+import math
+import sys
+import time
 
 import elasticsearch
-
 import hail as hl
-
-from cpg_utils import to_path, cloud, config
-
+from cpg_utils import cloud, config, to_path
 
 # CONSTANTS stolen from https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7a8c629054e94533615e7d2/hail_scripts/elasticsearch/elasticsearch_utils.py#L13
 # make encoded values as human-readable as possible
@@ -228,7 +225,6 @@ class ElasticsearchClient:
         elasticsearch_schema = _elasticsearch_mapping_for_type(table.key_by().row_value.dtype)['properties']
 
         index_name = kwargs['index_name']
-        assert index_name
 
         if self.es.indices.exists(index=index_name):
             self.es.indices.delete(index=index_name)

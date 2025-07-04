@@ -2,18 +2,16 @@
 suggested location for any utility methods or constants used across multiple stages
 """
 
-from typing import TYPE_CHECKING
 import datetime
 import functools
 import hashlib
+from typing import TYPE_CHECKING
 
-import loguru
 import hail as hl
-
-from cpg_utils import config, hail_batch, Path
-from metamist.graphql import gql, query
+import loguru
 from cpg_flow import targets
-
+from cpg_utils import Path, config, hail_batch
+from metamist.graphql import gql, query
 
 if TYPE_CHECKING:
     from hailtop.batch.resource import ResourceGroup

@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING
 
-from cpg_utils import hail_batch, config
-from cpg_seqr_loader import utils
 from cpg_flow import resources
+from cpg_utils import config, hail_batch
+
+from cpg_seqr_loader import utils
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob

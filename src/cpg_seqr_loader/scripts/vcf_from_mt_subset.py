@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
-import hail as hl
 
+import hail as hl
 from loguru import logger
 
 

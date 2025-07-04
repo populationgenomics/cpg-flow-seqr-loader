@@ -56,13 +56,11 @@ from argparse import ArgumentParser
 from os.path import join
 
 import hail as hl
-
 import loguru
-
-from cpg_utils import Path, to_path, config, hail_batch
 from cpg_flow import utils
-from cpg_seqr_loader.hail_scripts import variant_id, vep
+from cpg_utils import Path, config, hail_batch, to_path
 
+from cpg_seqr_loader.hail_scripts import variant_id, vep
 
 # adj is the adjusted population, which is the default for gnomAD v4
 # all samples across all groups, adjusted for technical artifacts

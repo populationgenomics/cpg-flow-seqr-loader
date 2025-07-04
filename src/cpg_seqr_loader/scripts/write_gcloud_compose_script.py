@@ -4,7 +4,6 @@ import argparse
 import os
 
 import loguru
-
 from cpg_flow import utils
 
 COMPOSE_COMMAND = 'gcloud storage objects compose'

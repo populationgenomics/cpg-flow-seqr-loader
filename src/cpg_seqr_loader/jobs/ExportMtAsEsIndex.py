@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
-from cpg_utils import hail_batch, config, Path
 from cpg_flow import utils as cpg_flow_utils
+from cpg_utils import Path, config, hail_batch
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob

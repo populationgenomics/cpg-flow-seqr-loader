@@ -1,12 +1,11 @@
 from typing import TYPE_CHECKING
 
 import loguru
+from cpg_flow import targets
+from cpg_flow import utils as cpg_flow_utils
+from cpg_utils import Path, config, hail_batch
 
-from cpg_utils import hail_batch, config, Path
 from cpg_seqr_loader import utils
-
-from cpg_flow import targets, utils as cpg_flow_utils
-
 
 if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
