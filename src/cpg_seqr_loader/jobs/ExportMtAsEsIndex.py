@@ -23,7 +23,7 @@ def create_es_export_job(
     job._dirname = f'{index_name}-{job._token}'  # noqa: SLF001
 
     # Use a non-preemptible instance if spot_instance is False in the config
-    job = job.spot(is_spot=config.config_retrieve(['workflow', 'es_index', 'spot_instance'], default=True))
+    job = job.spot(is_spot=config.config_retrieve(['elasticsearch', 'spot_instance']))
 
     req_storage = cpg_flow_utils.tshirt_mt_sizing(
         sequencing_type=config.config_retrieve(['workflow', 'sequencing_type']),
