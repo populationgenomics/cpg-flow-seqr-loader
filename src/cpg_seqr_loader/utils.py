@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 DATE_STRING: str = datetime.datetime.now().strftime('%y-%m')  # noqa: DTZ005
 
 
-TRAINING_PER_JOB: int = config.config_retrieve(['rd_combiner', 'vqsr_training_fragments_per_job'], 100)
-RECALIBRATION_PER_JOB: int = config.config_retrieve(['rd_combiner', 'vqsr_apply_fragments_per_job'], 60)
-INDEL_RECAL_DISC_SIZE: int = config.config_retrieve(['rd_combiner', 'indel_recal_disc_size'], 20)
-SNPS_RECAL_DISC_SIZE: int = config.config_retrieve(['rd_combiner', 'snps_recal_disc_size'], 20)
-SNPS_GATHER_DISC_SIZE: int = config.config_retrieve(['rd_combiner', 'snps_gather_disc_size'], 10)
+TRAINING_PER_JOB: int = config.config_retrieve(['vqsr', 'vqsr_training_fragments_per_job'])
+RECALIBRATION_PER_JOB: int = config.config_retrieve(['vqsr', 'vqsr_apply_fragments_per_job'])
+INDEL_RECAL_DISC_SIZE: int = config.config_retrieve(['vqsr', 'indel_recal_disc_size'])
+SNPS_RECAL_DISC_SIZE: int = config.config_retrieve(['vqsr', 'snps_recal_disc_size'])
+SNPS_GATHER_DISC_SIZE: int = config.config_retrieve(['vqsr', 'snps_gather_disc_size'])
 
 # some file extension constants
 VCF_BGZ = 'vcf.bgz'

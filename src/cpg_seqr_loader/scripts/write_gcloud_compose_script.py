@@ -5,7 +5,6 @@ import os
 
 import loguru
 
-from cpg_utils import config
 from cpg_flow import utils
 
 COMPOSE_COMMAND = 'gcloud storage objects compose'
@@ -40,13 +39,13 @@ def main(input_manifest: str, vcf_dir: str, output_vcf: str, output_script: str,
 
     merge_round = 1
     condense_strings = []
-    chunk_size = config.config_retrieve(['gcloud_condense', 'chunk_size'], 32)
     while len(vcf_fragments) > 1:
         new_fragments = []
         loguru.logger.info(f'Processing round {merge_round} with {len(vcf_fragments)} fragments.')
 
         # If we have more fragments than the chunk size, we need to merge them in chunks
-        for merge_chunk, fragment_list in enumerate(utils.chunks(vcf_fragments, chunk_size)):
+        # 32 objects is the maximum for a single compose operation in GCP
+        for merge_chunk, fragment_list in enumerate(utils.chunks(vcf_fragments, 32)):
             output = f'{tempdir}/{merge_round}/temp_chunk_{merge_chunk}.vcf.gz'
             condense_strings.append(make_compose_string(fragment_list=fragment_list, output=output))
             new_fragments.append(output)

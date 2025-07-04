@@ -48,7 +48,7 @@ def main(
     )
 
     # generate these in the job, instead of passing through
-    force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'], False)
+    force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'])
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
     # Load from save, if supplied (log correctly depending on force_new_combiner)

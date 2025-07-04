@@ -1,17 +1,72 @@
-# this is a template for the config file
-# demonstrating some of the common options used in cpg-flow
 [workflow]
 
-# TODO(you): update this to reflect the workflow's name
-name = 'workflow_name'
+name = 'seqr_loader'
 
-# mandatory fields for cpg-flow, not populated by analysis-runner
-# TODO(you): update this to contain a real cohort for the given sequencing type
-input_cohorts = []
-sequencing_type = 'genome'
+sequencing_type = 'exome'
+input_cohorts = ['COH5459']
 
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
 
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
+
+check_for_existing_vds = true
+manually_check_vds_sg_ids = true
+preemptible_vms = false
+
+# add any datasets to this list to export a VCF from the Annotated Dataset mt
+write_vcf = []
+
+[combiner]
+# used to decide if we should resume from a previous combiner plan
+force_new_combiner = false
+# highem, standard, or a string, e.g. "4Gi"
+driver_memory = "highmem"
+# string, e.g. "4Gi"
+driver_storage = "10Gi"
+# integer
+driver_cores = 2
+# highem, standard, or a string, e.g. "4Gi"
+worker_memory = "highmem"
+
+# The number of gVCFs/VDSs to combine in each intermediate step
+branch_factor = 50
+
+# the number of intermediate merges to run in parallel with each step
+gvcf_batch_size = 5
+
+# when merging multiple VDS, we find the largest VDS, repartition to target_records variants per partition
+# then repartition all VDSs to match those intervals prior to merging
+target_records = 30000
+
+[vqsr]
+# VQSR, when applying model, targets indel_filter_level and snp_filter_level
+# sensitivities. The tool matches them internally to a VQSLOD score cutoff
+# based on the model's estimated sensitivity to a set of true variants.
+snp_filter_level = 99.7
+indel_filter_level = 99.0
+
+# these are used when calculating how many fragments to send to each job
+vqsr_training_fragments_per_job = 100
+vqsr_apply_fragments_per_job = 60
+indel_recal_disc_size = 20
+snps_recal_disc_size = 20
+snps_gather_disc_size = 10
+
+[images]
+bcftools = "australia-southeast1-docker.pkg.dev/cpg-common/images/bcftools_120:1.20"
+gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.2.6.1"
+vep = "australia-southeast1-docker.pkg.dev/cpg-common/images/vep_110:release_110.1"
+
+[references]
+vep_mount = "gs://cpg-common-main/references/vep/110/mount"
+
+[elasticsearch]
+# Configure access to ElasticSearch server
+port = '9243'
+host = 'elasticsearch.es.australia-southeast1.gcp.elastic-cloud.com'
+username = 'seqr'
+# Load ElasticSearch password from a secret, unless SEQR_ES_PASSWORD is set
+password_secret_id = 'seqr-es-password'
+password_project_id = 'seqr-308602'

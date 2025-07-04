@@ -33,7 +33,7 @@ def create_combiner_jobs(
         vds_path, sg_ids_in_vds = vds_result_or_none
 
     # check for existing VDS by getting all and fetching latest
-    elif config.config_retrieve(['workflow', 'check_for_existing_vds'], True):
+    elif config.config_retrieve(['workflow', 'check_for_existing_vds']):
         loguru.logger.info('Checking for existing VDS')
         if existing_vds_analysis_entry := utils.query_for_latest_vds(multicohort.analysis_dataset.name, 'combiner'):
             vds_path = existing_vds_analysis_entry['output']
@@ -48,7 +48,7 @@ def create_combiner_jobs(
 
     # this is a quick and confident check on current VDS contents, but does require a direct connection to the VDS
     # by default this is True, and can be deactivated in config
-    if vds_path and config.config_retrieve(['workflow', 'manually_check_vds_sg_ids'], True):
+    if vds_path and config.config_retrieve(['workflow', 'manually_check_vds_sg_ids']):
         sg_ids_in_vds = utils.manually_find_ids_from_vds(vds_path)
 
     new_sg_gvcfs = [
@@ -102,7 +102,7 @@ def create_combiner_jobs(
 
     # set this job to be non-spot (i.e. non-preemptible)
     # previous issues with preemptible VMs led to multiple simultaneous QOB groups processing the same data
-    job.spot(config.config_retrieve(['combiner', 'preemptible_vms']))
+    job.spot(config.config_retrieve(['workflow', 'preemptible_vms']))
 
     input_vds_arg = f'--input_vds {vds_path!s}' if vds_path else ''
 
@@ -111,10 +111,7 @@ def create_combiner_jobs(
         python -m cpg_seqr_loader.scripts.run_combiner \\
             --output_vds {output_vds!s} \\
             --plan {combiner_plan!s} \\
-            --tmp {temp_dir / 'temp_dir'!s} \\
-            {input_vds_arg} \\
-            {gvcf_add_arg} \\
-            {sg_remove_arg}
+            --tmp {temp_dir / 'temp_dir'!s} {input_vds_arg} {gvcf_add_arg} {sg_remove_arg}
         """
     )
 

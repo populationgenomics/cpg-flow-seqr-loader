@@ -85,18 +85,11 @@ def vep_one(
     out_path: str,
     job_attrs: dict,
 ) -> 'BashJob':
-    """
-    Run a single VEP job.
-
-    Args:
-        vcf ():
-        out_path ():
-        job_attrs ():
-    """
+    """Run a single VEP job."""
 
     # check that the cache and image for this version exist
-    vep_image = config.config_retrieve(['images', 'vep_110'])
-    vep_mount_path = to_path(config.reference_path('vep_110_mount'))
+    vep_image = config.config_retrieve(['images', 'vep'])
+    vep_mount_path = to_path(config.config_retrieve(['references', 'vep_mount']))
 
     job = hail_batch.get_batch().new_bash_job('AnnotateFragmentedVcfWithVep', job_attrs | {'tool': 'VEP'})
     job.image(vep_image)
