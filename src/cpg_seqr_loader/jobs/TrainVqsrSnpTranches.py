@@ -58,7 +58,7 @@ def train_vqsr_snp_tranches(
         # add this job to the list of scatter jobs
         scatter_jobs.append(chunk_job)
 
-        res = resources.STANDARD.set_resources(chunk_job, ncpu=4, storage_gb=utils.SNPS_GATHER_DISC_SIZE)
+        res = resources.STANDARD.set_resources(j=chunk_job, ncpu=4, storage_gb=utils.SNPS_GATHER_DISC_SIZE)
 
         # iterate over the fragment VCF resource groups
         for vcf_resource in fragment_chunk:
