@@ -29,7 +29,7 @@ def quick_and_easy_bcftools_concat(
         f'Concat {len(input_vcfs)} VCFs', (job_attrs or {}) | {'tool': 'bcftools concat'}
     )
     job.image(config.config_retrieve(['images', 'bcftools']))
-    res = resources.STANDARD.set_resources(job, storage_gb=storage_gb)
+    res = resources.STANDARD.set_resources(j=job, storage_gb=storage_gb)
 
     # declare a resource group for the concatenated output
     job.declare_resource_group(
@@ -107,7 +107,7 @@ def apply_snp_vqsr_to_fragments(
         # stores all the annotated VCFs in this chunk
         chunk_vcfs = []
 
-        res = resources.STANDARD.set_resources(chunk_job, ncpu=1, storage_gb=10)
+        res = resources.STANDARD.set_resources(j=chunk_job, ncpu=1, storage_gb=10)
 
         # iterate over the zipped resource groups
         for vcf_resource, recal_resource in vcfs_recals:

@@ -39,7 +39,7 @@ def train_vqsr_indel_model(
     job.command('set -euo pipefail')
 
     # We run it for the entire dataset in one job, so can take an entire instance.
-    res = resources.HIGHMEM.set_resources(job, fraction=1, storage_gb=utils.INDEL_RECAL_DISC_SIZE)
+    res = resources.HIGHMEM.set_resources(j=job, fraction=1, storage_gb=utils.INDEL_RECAL_DISC_SIZE)
 
     tranche_cmdl = ' '.join([f'-tranche {v}' for v in utils.INDEL_RECALIBRATION_TRANCHE_VALUES])
     an_cmdl = ' '.join(

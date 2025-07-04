@@ -25,7 +25,7 @@ def gather_tranches(
     job = hail_batch.get_batch().new_job('GatherTrainedVqsrSnpTranches', job_attrs | {'tool': 'gatk GatherTranches'})
     job.image(config.config_retrieve(['images', 'gatk']))
     res = resources.STANDARD.set_resources(
-        job,
+        j=job,
         ncpu=2,
         storage_gb=utils.SNPS_GATHER_DISC_SIZE,
     )

@@ -33,7 +33,7 @@ def apply_recalibration_indels(
     job = hail_batch.get_batch().new_bash_job(f'RunTrainedIndelVqsrOnCombinedVcf on {snp_annotated_vcf}', job_attrs)
     job.image(config.config_retrieve(['images', 'gatk']))
     res = resources.STANDARD.set_resources(
-        job,
+        j=job,
         ncpu=2,
         storage_gb=utils.INDEL_RECAL_DISC_SIZE,
     )
