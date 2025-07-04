@@ -91,7 +91,8 @@ def create_combiner_jobs(
         with gvcf_path_file.open('w') as write_handle:
             for gvcf_path in new_sg_gvcfs:
                 write_handle.write(f'{gvcf_path!s}\n')
-        gvcf_add_arg = f'--gvcf_add_file {gvcf_path_file!s}'
+        localised_version = hail_batch.get_batch().read_input(str(gvcf_path_file))
+        gvcf_add_arg = f'--gvcf_add_file {localised_version}'
 
     job = hail_batch.get_batch().new_bash_job(
         'CombineGvcfsIntoVds',
