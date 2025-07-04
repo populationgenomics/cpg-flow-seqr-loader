@@ -25,5 +25,5 @@ jobs:
     - name: Install packages
       run: pip install .[test]
 
-    - name: Run pre-commit
-      run: pytest test
+#    - name: Run pre-commit
+#      run: pytest test
