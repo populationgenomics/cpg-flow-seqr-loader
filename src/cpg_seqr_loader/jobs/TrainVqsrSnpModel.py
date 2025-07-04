@@ -24,34 +24,38 @@ def train_vqsr_snp_model(
         },
     )
 
-    snp_recalibrator_j = hail_batch.get_batch().new_job(
+    job = hail_batch.get_batch().new_job(
         'TrainVqsrSnpModelOnCombinerData',
         job_attrs | {'tool': 'gatk VariantRecalibrator'},
     )
-    snp_recalibrator_j.image(config.config_retrieve(['images', 'gatk']))
+    job.image(config.config_retrieve(['images', 'gatk']))
 
     # We run it for the entire dataset in one job, so can take an entire instance.
-    res = resources.HIGHMEM.set_resources(snp_recalibrator_j, fraction=1, storage_gb=utils.SNPS_RECAL_DISC_SIZE)
+    res = resources.HIGHMEM.set_resources(
+        j=job,
+        fraction=1,
+        storage_gb=utils.SNPS_RECAL_DISC_SIZE,
+    )
 
     tranche_cmdl = ' '.join([f'-tranche {v}' for v in utils.SNP_RECALIBRATION_TRANCHE_VALUES])
     an_cmdl = ' '.join(
         [f'-an {v}' for v in utils.SNP_ALLELE_SPECIFIC_FEATURES],
     )
-    snp_recalibrator_j.command(
+    job.command(
         f"""set -euo pipefail
         gatk --java-options \
           "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
           VariantRecalibrator \\
           -V {siteonly_vcf['vcf.gz']} \\
-          -O {snp_recalibrator_j.recalibration} \\
-          --tranches-file {snp_recalibrator_j.tranches} \\
+          -O {job.recalibration} \\
+          --tranches-file {job.tranches} \\
           --trust-all-polymorphic \\
           {tranche_cmdl} \\
           {an_cmdl} \\
           -mode SNP \\
           --use-allele-specific-annotations \\
           --sample-every-Nth-variant 10 \\
-          --output-model {snp_recalibrator_j.model_file} \\
+          --output-model {job.model_file} \\
           --max-gaussians 6 \\
           -resource:hapmap,known=false,training=true,truth=true,prior=15 {local_res['hapmap'].base} \\
           -resource:omni,known=false,training=true,truth=true,prior=12 {local_res['omni'].base} \\
@@ -60,5 +64,5 @@ def train_vqsr_snp_model(
           """,
     )
 
-    hail_batch.get_batch().write_output(snp_recalibrator_j.model_file, snp_model)
-    return snp_recalibrator_j
+    hail_batch.get_batch().write_output(job.model_file, snp_model)
+    return job
