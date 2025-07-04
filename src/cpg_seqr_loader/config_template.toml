@@ -2,9 +2,6 @@
 
 name = 'seqr_loader'
 
-sequencing_type = 'exome'
-input_cohorts = ['COH5459']
-
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
 

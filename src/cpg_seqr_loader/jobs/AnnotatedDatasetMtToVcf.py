@@ -1,4 +1,4 @@
-from cpg_utils import hail_batch, config, Path, to_path
+from cpg_utils import hail_batch, config, Path
 
 
 def cohort_to_vcf_job(
