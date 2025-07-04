@@ -194,7 +194,7 @@ class TrainVqsrSnpTranches(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        manifest_file = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='hps_shard_manifest')
+        manifest_file = inputs.as_path(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='hps_shard_manifest')
 
         snp_model_path = inputs.as_str(target=multicohort, stage=TrainVqsrSnpModel)
 
