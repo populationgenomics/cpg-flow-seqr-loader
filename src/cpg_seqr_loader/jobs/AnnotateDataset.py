@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
-def create_annotate_cohort_job(
+def create_annotate_dataset_job(
     dataset: targets.Dataset,
     input_mt: str,
     output_mt: Path,

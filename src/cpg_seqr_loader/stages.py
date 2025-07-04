@@ -10,22 +10,20 @@ import loguru
 from cpg_flow import stage, targets, workflow
 
 from cpg_seqr_loader import utils
-from cpg_seqr_loader.jobs import (
-    AnnotateCohort,
-    AnnotateDataset,
-    AnnotateVcfsWithVep,
-    ConcatenateVcfFragmentsWithGcloud,
-    CreateDenseMtFromVdsWithHail,
-    CombineGvcfsIntoVds,
-    ExportMtAsEsIndex,
-    GatherTrainedVqsrSnpTranches,
-    RunIndelVqsr,
-    RunSnpVqsrOnFragments,
-    TrainVqsrIndels,
-    TrainVqsrSnpModel,
-    TrainVqsrSnpTranches,
-    SubsetMtToDatasetWithHail,
-)
+from cpg_seqr_loader.jobs.AnnotateCohort import create_annotate_cohort_job
+from cpg_seqr_loader.jobs.AnnotateDataset import create_annotate_dataset_job
+from cpg_seqr_loader.jobs.AnnotateVcfsWithVep import add_vep_jobs
+from cpg_seqr_loader.jobs.ConcatenateVcfFragmentsWithGcloud import create_and_run_compose_script
+from cpg_seqr_loader.jobs.CombineGvcfsIntoVds import create_combiner_jobs
+from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_jobs
+from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
+from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
+from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
+from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
+from cpg_seqr_loader.jobs.TrainVqsrIndels import train_vqsr_indel_model
+from cpg_seqr_loader.jobs.TrainVqsrSnpModel import train_vqsr_snp_model
+from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
+from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
 
 
 from cpg_utils import cloud, config, Path
@@ -34,14 +32,14 @@ SHARD_MANIFEST = 'shard-manifest.txt'
 
 
 @stage.stage(analysis_type='combiner')
-class CombineGvcfsIntoVdsStage(stage.MultiCohortStage):
+class CombineGvcfsIntoVds(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
         return self.prefix / f'{multicohort.name}.vds'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        job = CombineGvcfsIntoVds.create_combiner_jobs(
+        job = create_combiner_jobs(
             multicohort=multicohort,
             output_vds=output,
             combiner_plan=self.tmp_prefix / 'combiner_plan.json',
@@ -51,8 +49,8 @@ class CombineGvcfsIntoVdsStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(required_stages=[CombineGvcfsIntoVdsStage])
-class CreateDenseMtFromVdsWithHailStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[CombineGvcfsIntoVds])
+class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
         """
         the MT and both shard_manifest files are Paths, so this stage will rerun if any of those are missing
@@ -77,8 +75,8 @@ class CreateDenseMtFromVdsWithHailStage(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
 
-        job = CreateDenseMtFromVdsWithHail.generate_densify_jobs(
-            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVdsStage),
+        job = generate_densify_jobs(
+            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds),
             output_mt=outputs['mt'],
             output_sites_only=outputs['hps_vcf_dir'],
             output_separate_header=outputs['separate_header_vcf_dir'],
@@ -87,8 +85,8 @@ class CreateDenseMtFromVdsWithHailStage(stage.MultiCohortStage):
         return self.make_outputs(target=multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[CreateDenseMtFromVdsWithHailStage])
-class ConcatenateVcfsWithGcloudStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
+class ConcatenateVcfsWithGcloud(stage.MultiCohortStage):
     """
     Takes a manifest of VCF fragments, and produces a single VCF file
     This is disconnected from the previous stage, but requires it to be run first
@@ -107,7 +105,7 @@ class ConcatenateVcfsWithGcloudStage(stage.MultiCohortStage):
         """
         dense_inputs = inputs.as_dict(
             target=multicohort,
-            stage=CreateDenseMtFromVdsWithHailStage,
+            stage=CreateDenseMtFromVdsWithHail,
         )
 
         if not dense_inputs['separate_header_manifest'].exists():
@@ -118,7 +116,7 @@ class ConcatenateVcfsWithGcloudStage(stage.MultiCohortStage):
 
         output = self.expected_outputs(multicohort)
 
-        job = ConcatenateVcfFragmentsWithGcloud.create_and_run_compose_script(
+        job = create_and_run_compose_script(
             multicohort=multicohort,
             manifest_file=dense_inputs['separate_header_manifest'],
             manifest_dir=dense_inputs['separate_header_vcf_dir'],
@@ -130,8 +128,8 @@ class ConcatenateVcfsWithGcloudStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(required_stages=[ConcatenateVcfsWithGcloudStage])
-class TrainVqsrIndelModelStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[ConcatenateVcfsWithGcloud])
+class TrainVqsrIndelModel(stage.MultiCohortStage):
     """
     Train VQSR Indel model on the combiner data
     This is disconnected from the CreateDenseMtFromVdsWithHail stage, but requires it to be run first
@@ -152,9 +150,9 @@ class TrainVqsrIndelModelStage(stage.MultiCohortStage):
 
         outputs = self.expected_outputs(multicohort)
 
-        composed_sitesonly_vcf = inputs.as_str(multicohort, ConcatenateVcfsWithGcloudStage)
+        composed_sitesonly_vcf = inputs.as_str(multicohort, ConcatenateVcfsWithGcloud)
 
-        job = TrainVqsrIndels.train_vqsr_indel_model(
+        job = train_vqsr_indel_model(
             sites_only_vcf=composed_sitesonly_vcf,
             output_prefix=outputs['indel_prefix'],
             job_attrs=self.get_job_attrs(multicohort),
@@ -162,8 +160,8 @@ class TrainVqsrIndelModelStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[ConcatenateVcfsWithGcloudStage])
-class TrainVqsrSnpModelStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[ConcatenateVcfsWithGcloud])
+class TrainVqsrSnpModel(stage.MultiCohortStage):
     """
     Train VQSR SNP model on the combiner data
     This is disconnected from the CreateDenseMtFromVdsWithHail stage, but requires it to be run first
@@ -177,9 +175,9 @@ class TrainVqsrSnpModelStage(stage.MultiCohortStage):
         Submit jobs to train VQSR on the combiner data
         """
 
-        composed_sitesonly_vcf = inputs.as_str(multicohort, ConcatenateVcfsWithGcloudStage)
+        composed_sitesonly_vcf = inputs.as_str(multicohort, ConcatenateVcfsWithGcloud)
         outputs = self.expected_outputs(multicohort)
-        job = TrainVqsrSnpModel.train_vqsr_snp_model(
+        job = train_vqsr_snp_model(
             sites_only_vcf=composed_sitesonly_vcf,
             snp_model=str(outputs),
             job_attrs=self.get_job_attrs(multicohort),
@@ -187,8 +185,8 @@ class TrainVqsrSnpModelStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[CreateDenseMtFromVdsWithHailStage, TrainVqsrSnpModelStage])
-class TrainVqsrSnpTranchesStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHail, TrainVqsrSnpModel])
+class TrainVqsrSnpTranches(stage.MultiCohortStage):
     """
     Scattered training of VQSR tranches for SNPs
     """
@@ -199,13 +197,11 @@ class TrainVqsrSnpTranchesStage(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        manifest_file = inputs.as_str(
-            target=multicohort, stage=CreateDenseMtFromVdsWithHailStage, key='hps_shard_manifest'
-        )
+        manifest_file = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='hps_shard_manifest')
 
-        snp_model_path = inputs.as_str(target=multicohort, stage=TrainVqsrSnpModelStage)
+        snp_model_path = inputs.as_str(target=multicohort, stage=TrainVqsrSnpModel)
 
-        job_list = TrainVqsrSnpTranches.train_vqsr_snp_tranches(
+        job_list = train_vqsr_snp_tranches(
             manifest_file=manifest_file,
             snp_model_path=snp_model_path,
             output_path=output,
@@ -215,8 +211,8 @@ class TrainVqsrSnpTranchesStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job_list)
 
 
-@stage.stage(required_stages=[CreateDenseMtFromVdsWithHailStage, TrainVqsrSnpTranchesStage])
-class GatherTrainedVqsrSnpTranchesStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHail, TrainVqsrSnpTranches])
+class GatherTrainedVqsrSnpTranches(stage.MultiCohortStage):
     """Scattered training of VQSR tranches for SNPs."""
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
@@ -225,13 +221,13 @@ class GatherTrainedVqsrSnpTranchesStage(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         manifest_file = inputs.as_path(
             target=multicohort,
-            stage=CreateDenseMtFromVdsWithHailStage,
+            stage=CreateDenseMtFromVdsWithHail,
             key='hps_shard_manifest',
         )
 
         output = self.expected_outputs(multicohort)
 
-        job = GatherTrainedVqsrSnpTranches.gather_tranches(
+        job = gather_tranches(
             manifest_file=manifest_file,
             temp_path=self.tmp_prefix / 'vqsr_snp_tranches',
             output_path=output,
@@ -242,25 +238,23 @@ class GatherTrainedVqsrSnpTranchesStage(stage.MultiCohortStage):
 
 @stage.stage(
     required_stages=[
-        CreateDenseMtFromVdsWithHailStage,
-        GatherTrainedVqsrSnpTranchesStage,
-        TrainVqsrSnpTranchesStage,
+        CreateDenseMtFromVdsWithHail,
+        GatherTrainedVqsrSnpTranches,
+        TrainVqsrSnpTranches,
     ],
 )
-class RunSnpVqsrOnFragmentsStage(stage.MultiCohortStage):
+class RunSnpVqsrOnFragments(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
         return self.tmp_prefix / 'vqsr.vcf.gz'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        manifest_file = inputs.as_path(
-            target=multicohort, stage=CreateDenseMtFromVdsWithHailStage, key='hps_shard_manifest'
-        )
+        manifest_file = inputs.as_path(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='hps_shard_manifest')
 
-        tranche_file = inputs.as_str(target=multicohort, stage=GatherTrainedVqsrSnpTranchesStage)
+        tranche_file = inputs.as_str(target=multicohort, stage=GatherTrainedVqsrSnpTranches)
 
-        job_list = RunSnpVqsrOnFragments.apply_snp_vqsr_to_fragments(
+        job_list = apply_snp_vqsr_to_fragments(
             manifest_file=manifest_file,
             tranche_file=tranche_file,
             temp_path=self.tmp_prefix / 'vqsr_snp_tranches',
@@ -273,11 +267,11 @@ class RunSnpVqsrOnFragmentsStage(stage.MultiCohortStage):
 
 @stage.stage(
     required_stages=[
-        RunSnpVqsrOnFragmentsStage,
-        TrainVqsrIndelModelStage,
+        RunSnpVqsrOnFragments,
+        TrainVqsrIndelModel,
     ],
 )
-class RunIndelVqsrStage(stage.MultiCohortStage):
+class RunIndelVqsr(stage.MultiCohortStage):
     """
     Run Indel VQSR on the reconstituted, SNP-annotated, VCF
     """
@@ -287,19 +281,19 @@ class RunIndelVqsrStage(stage.MultiCohortStage):
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
-        annotated_vcf = inputs.as_str(target=multicohort, stage=RunSnpVqsrOnFragmentsStage)
+        annotated_vcf = inputs.as_str(target=multicohort, stage=RunSnpVqsrOnFragments)
         indel_recalibrations = inputs.as_str(
             target=multicohort,
-            stage=TrainVqsrIndelModelStage,
+            stage=TrainVqsrIndelModel,
             key='indel_recalibrations',
         )
         indel_tranches = inputs.as_str(
             target=multicohort,
-            stage=TrainVqsrIndelModelStage,
+            stage=TrainVqsrIndelModel,
             key='indel_tranches',
         )
 
-        job = RunIndelVqsr.apply_recalibration_indels(
+        job = apply_recalibration_indels(
             snp_annotated_vcf=annotated_vcf,
             indel_recalibration=indel_recalibrations,
             indel_tranches=indel_tranches,
@@ -313,8 +307,8 @@ class RunIndelVqsrStage(stage.MultiCohortStage):
         )
 
 
-@stage.stage(required_stages=[CreateDenseMtFromVdsWithHailStage])
-class AnnotateVcfsWithVepStage(stage.MultiCohortStage):
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
+class AnnotateVcfsWithVep(stage.MultiCohortStage):
     """
     Annotate VCF with VEP.
     """
@@ -329,11 +323,11 @@ class AnnotateVcfsWithVepStage(stage.MultiCohortStage):
         outputs = self.expected_outputs(multicohort)
         manifest_file = inputs.as_path(
             target=multicohort,
-            stage=CreateDenseMtFromVdsWithHailStage,
+            stage=CreateDenseMtFromVdsWithHail,
             key='hps_shard_manifest',
         )
 
-        vep_jobs = AnnotateVcfsWithVep.add_vep_jobs(
+        vep_jobs = add_vep_jobs(
             manifest_file=manifest_file,
             final_out_path=outputs,
             tmp_prefix=self.tmp_prefix / 'tmp',
@@ -345,12 +339,12 @@ class AnnotateVcfsWithVepStage(stage.MultiCohortStage):
 
 @stage.stage(
     required_stages=[
-        CreateDenseMtFromVdsWithHailStage,
-        AnnotateVcfsWithVepStage,
-        RunIndelVqsrStage,
+        CreateDenseMtFromVdsWithHail,
+        AnnotateVcfsWithVep,
+        RunIndelVqsr,
     ],
 )
-class AnnotateCohortStage(stage.MultiCohortStage):
+class AnnotateCohort(stage.MultiCohortStage):
     """
     Annotate SNP/Indel MT with VEP and VQSR.
     """
@@ -370,11 +364,11 @@ class AnnotateCohortStage(stage.MultiCohortStage):
         """
 
         outputs = self.expected_outputs(multicohort)
-        vep_ht_path = inputs.as_str(target=multicohort, stage=AnnotateVcfsWithVepStage)
-        vqsr_vcf = inputs.as_str(target=multicohort, stage=RunIndelVqsrStage)
-        variant_mt = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHailStage, key='mt')
+        vep_ht_path = inputs.as_str(target=multicohort, stage=AnnotateVcfsWithVep)
+        vqsr_vcf = inputs.as_str(target=multicohort, stage=RunIndelVqsr)
+        variant_mt = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='mt')
 
-        job = AnnotateCohort.create_annotate_cohort_job(
+        job = create_annotate_cohort_job(
             output_mt=outputs,
             vep_ht=vep_ht_path,
             vqsr_vcf=vqsr_vcf,
@@ -385,8 +379,8 @@ class AnnotateCohortStage(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[AnnotateCohortStage])
-class SubsetMtToDatasetWithHailStage(stage.DatasetStage):
+@stage.stage(required_stages=[AnnotateCohort])
+class SubsetMtToDatasetWithHail(stage.DatasetStage):
     """
     Subset the MT to a single dataset - or a subset of families within a dataset
     Skips this stage if the MultiCohort has only one dataset
@@ -427,9 +421,9 @@ class SubsetMtToDatasetWithHailStage(stage.DatasetStage):
             loguru.logger.info(f'Skipping AnnotateDataset mt subsetting for {dataset}')
             return self.make_outputs(dataset)
 
-        variant_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohortStage)
+        variant_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
 
-        job = SubsetMtToDatasetWithHail.create_subset_mt_job(
+        job = create_subset_mt_job(
             dataset=dataset,
             input_mt=variant_mt,
             id_file=outputs['id_file'],
@@ -442,13 +436,13 @@ class SubsetMtToDatasetWithHailStage(stage.DatasetStage):
 
 @stage.stage(
     required_stages=[
-        AnnotateCohortStage,
-        SubsetMtToDatasetWithHailStage,
+        AnnotateCohort,
+        SubsetMtToDatasetWithHail,
     ],
     # analyses recorded to pass through to Metamist/other workflows
     analysis_type='matrixtable',
 )
-class AnnotateDatasetStage(stage.DatasetStage):
+class AnnotateDataset(stage.DatasetStage):
     def expected_outputs(self, dataset: targets.Dataset) -> Path:
         """
         Expected to generate a matrix table
@@ -478,11 +472,11 @@ class AnnotateDatasetStage(stage.DatasetStage):
         family_sgs = utils.get_family_sequencing_groups(dataset)
         # choose the input MT based on the number of datasets in the MultiCohort and the presence of family SGs
         if len(workflow.get_multicohort().get_datasets()) == 1 and family_sgs is None:
-            input_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohortStage)
+            input_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
         else:
-            input_mt = inputs.as_path(target=dataset, stage=SubsetMtToDatasetWithHailStage, key='mt')
+            input_mt = inputs.as_path(target=dataset, stage=SubsetMtToDatasetWithHail, key='mt')
 
-        job = AnnotateDataset.create_annotate_cohort_job(
+        job = create_annotate_dataset_job(
             dataset=dataset,
             input_mt=input_mt,
             output_mt=output,
@@ -492,12 +486,12 @@ class AnnotateDatasetStage(stage.DatasetStage):
 
 
 @stage.stage(
-    required_stages=[AnnotateDatasetStage],
+    required_stages=[AnnotateDataset],
     analysis_type='es-index',
     analysis_keys=['index_name'],
     update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
 )
-class ExportMtAsEsIndexStage(stage.DatasetStage):
+class ExportMtAsEsIndex(stage.DatasetStage):
     """
     Create a Seqr index.
     """
@@ -543,11 +537,11 @@ class ExportMtAsEsIndexStage(stage.DatasetStage):
             return self.make_outputs(dataset)
 
         # get the absolute path to the MT
-        mt_path = inputs.as_str(target=dataset, stage=AnnotateDatasetStage)
+        mt_path = inputs.as_str(target=dataset, stage=AnnotateDataset)
 
         outputs = self.expected_outputs(dataset)
 
-        job = ExportMtAsEsIndex.create_annotate_cohort_job(
+        job = create_es_export_job(
             index_name=outputs['index_name'],
             done_flag=outputs['done_flag'],
             mt_path=mt_path,

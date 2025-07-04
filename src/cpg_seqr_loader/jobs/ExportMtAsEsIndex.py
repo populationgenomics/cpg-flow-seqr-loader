@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
-def create_annotate_cohort_job(
+def create_es_export_job(
     index_name: str,
     done_flag: Path,
     mt_path: str,
