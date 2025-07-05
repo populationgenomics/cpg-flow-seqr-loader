@@ -188,11 +188,14 @@ class TrainVqsrSnpTranches(stage.MultiCohortStage):
     Scattered training of VQSR tranches for SNPs
     """
 
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        return self.tmp_prefix / 'tranches_trained'
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
+        return {
+            'tranches': self.tmp_prefix / 'tranches_trained',
+            'temp': self.tmp_prefix / 'vqsr_snp_tranches',
+        }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        output = self.expected_outputs(multicohort)
+        outputs = self.expected_outputs(multicohort)
 
         manifest_file = inputs.as_path(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='hps_shard_manifest')
 
@@ -201,11 +204,11 @@ class TrainVqsrSnpTranches(stage.MultiCohortStage):
         job_list = train_vqsr_snp_tranches(
             manifest_file=manifest_file,
             snp_model_path=snp_model_path,
-            output_path=output,
-            temp_path=self.tmp_prefix / 'vqsr_snp_tranches',
+            output_path=outputs['tranches'],
+            temp_path=outputs['temp'],
             job_attrs=self.get_job_attrs(multicohort),
         )
-        return self.make_outputs(multicohort, data=output, jobs=job_list)
+        return self.make_outputs(multicohort, data=outputs, jobs=job_list)
 
 
 @stage.stage(required_stages=[CreateDenseMtFromVdsWithHail, TrainVqsrSnpTranches])
@@ -224,9 +227,12 @@ class GatherTrainedVqsrSnpTranches(stage.MultiCohortStage):
 
         output = self.expected_outputs(multicohort)
 
+        # temp dir for outputs from the previous stage
+        temp_dir = inputs.as_path(multicohort, TrainVqsrSnpTranches, key='temp')
+
         job = gather_tranches(
             manifest_file=manifest_file,
-            temp_path=self.tmp_prefix / 'vqsr_snp_tranches',
+            temp_path=temp_dir,
             output_path=output,
             job_attrs=self.get_job_attrs(multicohort),
         )
