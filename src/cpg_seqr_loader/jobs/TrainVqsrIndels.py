@@ -16,12 +16,8 @@ def train_vqsr_indel_model(
 ) -> 'BashJob':
     """Train VQSR indels on the sites-only VCF."""
     local_resources = utils.get_localised_resources_for_vqsr()
-    siteonly_vcf = hail_batch.get_batch().read_input_group(
-        **{
-            utils.VCF_GZ: str(sites_only_vcf),
-            utils.VCF_GZ_TBI: str(sites_only_vcf) + '.tbi',
-        },
-    )
+    siteonly_vcf = hail_batch.get_batch().read_input(sites_only_vcf)
+
     """
     Run VariantRecalibrator to calculate VQSLOD tranches for indels
 
@@ -59,7 +55,7 @@ def train_vqsr_indel_model(
         gatk --java-options \
           "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
           VariantRecalibrator \\
-          -V {siteonly_vcf['vcf.gz']} \\
+          -V {siteonly_vcf} \\
           -O {job.output.recal} \\
           --tranches-file {job.output.tranches} \\
           --trust-all-polymorphic \\

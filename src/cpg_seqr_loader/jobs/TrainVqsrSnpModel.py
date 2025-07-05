@@ -17,12 +17,7 @@ def train_vqsr_snp_model(
     """Train VQSR SNPs on the sites-only VCF."""
 
     local_res = utils.get_localised_resources_for_vqsr()
-    siteonly_vcf = hail_batch.get_batch().read_input_group(
-        **{
-            utils.VCF_GZ: sites_only_vcf,
-            utils.VCF_GZ_TBI: sites_only_vcf + '.tbi',
-        },
-    )
+    siteonly_vcf = hail_batch.get_batch().read_input(sites_only_vcf)
 
     job = hail_batch.get_batch().new_job(
         'TrainVqsrSnpModelOnCombinerData',
@@ -46,7 +41,7 @@ def train_vqsr_snp_model(
         gatk --java-options \
           "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
           VariantRecalibrator \\
-          -V {siteonly_vcf['vcf.gz']} \\
+          -V {siteonly_vcf} \\
           -O {job.recalibration} \\
           --tranches-file {job.tranches} \\
           --trust-all-polymorphic \\
