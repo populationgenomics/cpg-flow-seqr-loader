@@ -38,6 +38,7 @@ def train_vqsr_snp_model(
     )
     job.command(
         f"""set -euo pipefail
+        tabix {siteonly_vcf}
         gatk --java-options \
           "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
           VariantRecalibrator \\

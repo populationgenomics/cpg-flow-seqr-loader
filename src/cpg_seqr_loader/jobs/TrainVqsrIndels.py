@@ -52,6 +52,7 @@ def train_vqsr_indel_model(
     )
     job.command(
         f"""
+        tabix {siteonly_vcf}
         gatk --java-options \
           "{res.java_mem_options()} {res.java_gc_thread_options()}" \\
           VariantRecalibrator \\
