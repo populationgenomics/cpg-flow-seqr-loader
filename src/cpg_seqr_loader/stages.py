@@ -257,10 +257,13 @@ class RunSnpVqsrOnFragments(stage.MultiCohortStage):
 
         tranche_file = inputs.as_str(target=multicohort, stage=GatherTrainedVqsrSnpTranches)
 
+        # temp dir for outputs from the previous stage
+        temp_dir = inputs.as_path(multicohort, TrainVqsrSnpTranches, key='temp')
+
         job_list = apply_snp_vqsr_to_fragments(
             manifest_file=manifest_file,
             tranche_file=tranche_file,
-            temp_path=self.tmp_prefix / 'vqsr_snp_tranches',
+            temp_path=temp_dir,
             output_path=str(output),
             job_attrs=self.get_job_attrs(multicohort),
         )
