@@ -36,7 +36,6 @@ def quick_and_easy_bcftools_concat(
         output={
             'vcf.gz': '{root}.vcf.gz',
             'vcf.gz.tbi': '{root}.vcf.gz.tbi',
-            'vcf.gz.csi': '{root}.vcf.gz.csi',
         },
     )
     job.command(
