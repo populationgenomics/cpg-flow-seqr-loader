@@ -44,9 +44,8 @@ def quick_and_easy_bcftools_concat(
     bcftools concat \\
         --threads {res.get_nthreads() - 1} \\
         -a {' '.join(vcf['vcf.gz'] for vcf in input_vcfs)} \\
-        -Oz -o {job.output['vcf.gz']}
-    tabix -p vcf {job.output['vcf.gz']}
-    tabix -p vcf -C {job.output['vcf.gz']}
+        -Oz -o {job.output['vcf.gz']} \\
+        -W=tbi
     """,
     )
     return job

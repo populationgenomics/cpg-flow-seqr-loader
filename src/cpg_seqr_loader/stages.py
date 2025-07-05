@@ -385,7 +385,7 @@ class AnnotateCohort(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[AnnotateCohort])
+@stage.stage(required_stages=AnnotateCohort)
 class SubsetMtToDatasetWithHail(stage.DatasetStage):
     """
     Subset the MT to a single dataset - or a subset of families within a dataset
