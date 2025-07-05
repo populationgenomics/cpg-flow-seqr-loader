@@ -1,7 +1,5 @@
-# noqa: D100
-
 import logging
-from typing import Any, Optional, Union
+from typing import Any
 
 import hail as hl
 
@@ -25,12 +23,12 @@ def to_phred(linear_expr: hl.expr.NumericExpression) -> hl.expr.Float64Expressio
 
 def get_lowqual_expr(
     alleles: hl.expr.ArrayExpression,
-    qual_approx_expr: Union[hl.expr.ArrayNumericExpression, hl.expr.NumericExpression],
+    qual_approx_expr: hl.expr.ArrayNumericExpression | hl.expr.NumericExpression,
     snv_phred_threshold: int = 30,
     snv_phred_het_prior: int = 30,  # 1/1000
     indel_phred_threshold: int = 30,
     indel_phred_het_prior: int = 39,  # 1/8,000
-) -> Union[hl.expr.BooleanExpression, hl.expr.ArrayExpression]:
+) -> hl.expr.BooleanExpression | hl.expr.ArrayExpression:
     """
     Compute lowqual threshold expression for either split or unsplit alleles based on QUALapprox or AS_QUALapprox.
 
@@ -60,25 +58,24 @@ def get_lowqual_expr(
                 qual_approx_expr[ai - 1] < min_indel_qual,
             )
         )
-    else:
-        return (
-            hl.case()
-            .when(
-                hl.range(1, hl.len(alleles)).all(lambda ai: hl.is_snp(alleles[0], alleles[ai])),
-                qual_approx_expr < min_snv_qual,
-            )
-            .when(
-                hl.range(1, hl.len(alleles)).all(lambda ai: hl.is_indel(alleles[0], alleles[ai])),
-                qual_approx_expr < min_indel_qual,
-            )
-            .default(qual_approx_expr < min_mixed_qual)
+    return (
+        hl.case()
+        .when(
+            hl.range(1, hl.len(alleles)).all(lambda ai: hl.is_snp(alleles[0], alleles[ai])),
+            qual_approx_expr < min_snv_qual,
         )
+        .when(
+            hl.range(1, hl.len(alleles)).all(lambda ai: hl.is_indel(alleles[0], alleles[ai])),
+            qual_approx_expr < min_indel_qual,
+        )
+        .default(qual_approx_expr < min_mixed_qual)
+    )
 
 
 def get_adj_expr(
     gt_expr: hl.expr.CallExpression,
-    gq_expr: Union[hl.expr.Int32Expression, hl.expr.Int64Expression],
-    dp_expr: Union[hl.expr.Int32Expression, hl.expr.Int64Expression],
+    gq_expr: hl.expr.Int32Expression | hl.expr.Int64Expression,
+    dp_expr: hl.expr.Int32Expression | hl.expr.Int64Expression,
     ad_expr: hl.expr.ArrayNumericExpression,
     adj_gq: int = 20,
     adj_dp: int = 10,
@@ -126,12 +123,12 @@ def annotation_type_in_vcf_info(t: Any) -> bool:
     return (
         annotation_type_is_numeric(t)
         or t in (hl.tstr, hl.tbool)
-        or (isinstance(t, (hl.tarray, hl.tset)) and annotation_type_in_vcf_info(t.element_type))
+        or (isinstance(t, hl.tarray | hl.tset) and annotation_type_in_vcf_info(t.element_type))
     )
 
 
 def fs_from_sb(
-    sb: Union[hl.expr.ArrayNumericExpression, hl.expr.ArrayExpression],
+    sb: hl.expr.ArrayNumericExpression | hl.expr.ArrayExpression,
     normalize: bool = True,
     min_cell_count: int = 200,
     min_count: int = 4,
@@ -203,7 +200,7 @@ def fs_from_sb(
     )
 
 
-def sor_from_sb(sb: Union[hl.expr.ArrayNumericExpression, hl.expr.ArrayExpression]) -> hl.expr.Float64Expression:
+def sor_from_sb(sb: hl.expr.ArrayNumericExpression | hl.expr.ArrayExpression) -> hl.expr.Float64Expression:
     """
     Compute `SOR` (Symmetric Odds Ratio test) annotation from  the `SB` (strand balance table) field.
 
@@ -230,16 +227,14 @@ def sor_from_sb(sb: Union[hl.expr.ArrayNumericExpression, hl.expr.ArrayExpressio
     symmetrical_ratio = ((ref_fw * alt_rv) / (alt_fw * ref_rv)) + ((alt_fw * ref_rv) / (ref_fw * alt_rv))
     ref_ratio = hl.min(ref_rv, ref_fw) / hl.max(ref_rv, ref_fw)
     alt_ratio = hl.min(alt_fw, alt_rv) / hl.max(alt_fw, alt_rv)
-    sor = hl.log(symmetrical_ratio) + hl.log(ref_ratio) - hl.log(alt_ratio)
-
-    return sor
+    return hl.log(symmetrical_ratio) + hl.log(ref_ratio) - hl.log(alt_ratio)
 
 
 def pab_max_expr(
     gt_expr: hl.expr.CallExpression,
     ad_expr: hl.expr.ArrayExpression,
-    la_expr: Optional[hl.expr.ArrayExpression] = None,
-    n_alleles_expr: Optional[hl.expr.Int32Expression] = None,
+    la_expr: hl.expr.ArrayExpression | None = None,
+    n_alleles_expr: hl.expr.Int32Expression | None = None,
 ) -> hl.expr.ArrayExpression:
     """
     Compute the maximum p-value of the binomial test for the alternate allele balance (PAB) for each allele.
@@ -266,12 +261,10 @@ def pab_max_expr(
         ad_expr = hl.vds.local_to_global(ad_expr, la_expr, n_alleles_expr, fill_value=0, number='R')
         gt_expr = hl.vds.lgt_to_gt(gt_expr, la_expr)
 
-    expr = hl.agg.array_agg(
+    return hl.agg.array_agg(
         lambda x: hl.agg.filter(
             gt_expr.is_het(),
             hl.agg.max(hl.binom_test(x, hl.sum(ad_expr), 0.5, 'two-sided')),
         ),
         ad_expr[1:],  # Skip ref allele
     )
-
-    return expr

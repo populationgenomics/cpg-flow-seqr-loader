@@ -1,7 +1,4 @@
-# noqa: D100
-
 import logging
-from typing import List, Optional, Union
 
 import hail as hl
 
@@ -37,12 +34,10 @@ AS_INFO_AGG_FIELDS = {
 
 def _get_info_agg_expr(
     mt: hl.MatrixTable,
-    sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['sum_agg_fields'],
-    int32_sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS[
-        'int32_sum_agg_fields'
-    ],
-    median_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['median_agg_fields'],
-    array_sum_agg_fields: Union[List[str], dict[str, hl.expr.ArrayNumericExpression]] = INFO_AGG_FIELDS[
+    sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['sum_agg_fields'],
+    int32_sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['int32_sum_agg_fields'],
+    median_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['median_agg_fields'],
+    array_sum_agg_fields: list[str] | dict[str, hl.expr.ArrayNumericExpression] = INFO_AGG_FIELDS[
         'array_sum_agg_fields'
     ],
     prefix: str = '',
@@ -77,7 +72,7 @@ def _get_info_agg_expr(
         Expression.
     """
 
-    def _agg_list_to_dict(mt: hl.MatrixTable, fields: List[str]) -> dict[str, hl.expr.NumericExpression]:
+    def _agg_list_to_dict(mt: hl.MatrixTable, fields: list[str]) -> dict[str, hl.expr.NumericExpression]:
         out_fields = {}
         if 'gvcf_info' in mt.entry:
             out_fields = {f: mt.gvcf_info[f] for f in fields if f in mt.gvcf_info}
@@ -208,19 +203,17 @@ def _get_info_agg_expr(
 
 def get_as_info_expr(
     mt: hl.MatrixTable,
-    sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['sum_agg_fields'],
-    int32_sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS[
-        'int32_sum_agg_fields'
-    ],
-    median_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['median_agg_fields'],
-    array_sum_agg_fields: Union[List[str], dict[str, hl.expr.ArrayNumericExpression]] = INFO_AGG_FIELDS[
+    sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['sum_agg_fields'],
+    int32_sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['int32_sum_agg_fields'],
+    median_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['median_agg_fields'],
+    array_sum_agg_fields: list[str] | dict[str, hl.expr.ArrayNumericExpression] = INFO_AGG_FIELDS[
         'array_sum_agg_fields'
     ],
     alt_alleles_range_array_field: str = 'alt_alleles_range_array',
     treat_fields_as_allele_specific: bool = False,
 ) -> hl.expr.StructExpression:
     """
-    Return an allele-specific annotation Struct containing typical VCF INFO fields from GVCF INFO fields stored in the MT entries.
+    Return an allele-specific Struct containing typical VCF INFO fields from GVCF INFO fields stored in the MT entries.
 
     .. note::
 
@@ -322,17 +315,15 @@ def get_as_info_expr(
 
 def get_site_info_expr(
     mt: hl.MatrixTable,
-    sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['sum_agg_fields'],
-    int32_sum_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS[
-        'int32_sum_agg_fields'
-    ],
-    median_agg_fields: Union[List[str], dict[str, hl.expr.NumericExpression]] = INFO_AGG_FIELDS['median_agg_fields'],
-    array_sum_agg_fields: Union[List[str], dict[str, hl.expr.ArrayNumericExpression]] = INFO_AGG_FIELDS[
+    sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['sum_agg_fields'],
+    int32_sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['int32_sum_agg_fields'],
+    median_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['median_agg_fields'],
+    array_sum_agg_fields: list[str] | dict[str, hl.expr.ArrayNumericExpression] = INFO_AGG_FIELDS[
         'array_sum_agg_fields'
     ],
 ) -> hl.expr.StructExpression:
     """
-    Create a site-level annotation Struct aggregating typical VCF INFO fields from GVCF INFO fields stored in the MT entries.
+    Creates site-level Struct aggregating typical VCF INFO fields from GVCF INFO fields stored in the MT entries.
 
     .. note::
 
@@ -392,9 +383,9 @@ def default_compute_info(
     as_annotations: bool = False,
     # Set to True by default to prevent a breaking change.
     quasi_as_annotations: bool = True,
-    n_partitions: Optional[int] = 5000,
+    n_partitions: int | None = 5000,
     lowqual_indel_phred_het_prior: int = 40,
-    ac_filter_groups: Optional[dict[str, hl.Expression]] = None,
+    ac_filter_groups: dict[str, hl.Expression] | None = None,
 ) -> hl.Table:
     """
     Compute a HT with the typical GATK allele-specific (AS) info fields as well as ACs and lowqual fields.
@@ -464,10 +455,7 @@ def default_compute_info(
 
     if site_annotations:
         site_expr = get_site_info_expr(mt)
-        if info_expr is None:
-            info_expr = site_expr
-        else:
-            info_expr = info_expr.annotate(**site_expr)
+        info_expr = site_expr if info_expr is None else info_expr.annotate(**site_expr)
 
     # Add 'AC' and 'AC_raw' for each allele count filter group requested.
     # First compute ACs for each non-ref allele, grouped by adj.

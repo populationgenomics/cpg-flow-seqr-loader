@@ -1,9 +1,6 @@
-# noqa: D100
-
 import logging
 
 import hail as hl
-
 
 POP_NAMES = {
     'afr': 'African/African-American',
@@ -153,6 +150,4 @@ def adjust_vcf_incompatible_types(
         info_expr['AS_SB_TABLE'] = get_pipe_expr(ht.info.AS_SB_TABLE.map(lambda x: hl.delimit(x, ',')))
 
     # Annotate with new expression
-    ht = ht.annotate(info=ht.info.annotate(**info_expr))
-
-    return ht
+    return ht.annotate(info=ht.info.annotate(**info_expr))
