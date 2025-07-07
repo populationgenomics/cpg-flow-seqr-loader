@@ -5,6 +5,9 @@ name = 'seqr_loader'
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
 
+# when running the initial steps of the workflow (combining VDS, exporting as MT & VCF), use this argument
+#last_stages=["CreateDenseMtFromVdsWithHailStage"]
+
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
 
