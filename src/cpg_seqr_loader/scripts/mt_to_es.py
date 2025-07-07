@@ -8,10 +8,11 @@ https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7
 
 import argparse
 import io
-import logging
 import math
 import sys
 import time
+
+from loguru import logger
 
 import elasticsearch
 import hail as hl
@@ -125,9 +126,6 @@ class ElasticsearchClient:
         _host = f'{host}:{port}'
         self.es = elasticsearch.Elasticsearch(_host, basic_auth=(self._es_username, self._es_password))
 
-        # check connection
-        logging.info(self.es.info())
-
     def wait_for_shard_transfer(self, index_name, num_attempts=1000):
         """
         Wait for shards to move off of the loading nodes before connecting to seqr
@@ -136,10 +134,10 @@ class ElasticsearchClient:
         for _i in range(num_attempts):
             shards = self.es.cat.shards(index=index_name)
             if LOADING_NODES_NAME not in shards:
-                logging.warning(f'Shards are on {shards}')
+                logger.warning(f'Shards are on {shards}')
                 return
             num_shards = len(shards.strip().split('\n'))
-            logging.warning(f'Waiting for {num_shards} shards to transfer off the es-data-loading nodes: \n{shards}')
+            logger.warning(f'Waiting for {num_shards} shards to transfer off the es-data-loading nodes: \n{shards}')
             time.sleep(5)
 
         raise Exception('Shards did not transfer off loading nodes')
@@ -161,7 +159,7 @@ class ElasticsearchClient:
         index_mapping = {'properties': elasticsearch_schema}
 
         if _meta:
-            logging.info(f'==> index _meta: {_meta}')
+            logger.info(f'==> index _meta: {_meta}')
             index_mapping['_meta'] = _meta
 
         if not self.es.indices.exists(index=index_name):
@@ -176,8 +174,7 @@ class ElasticsearchClient:
                 },
             }
 
-            logging.info(f'create_mapping - elasticsearch schema: \n{elasticsearch_schema}')
-            logging.info(f'==> creating elasticsearch index {index_name}')
+            logger.info(f'==> creating elasticsearch index {index_name}')
 
             self.es.indices.create(index=index_name, body=body)
 
@@ -216,9 +213,6 @@ class ElasticsearchClient:
             if encoded_name != field_name:
                 rename_dict[field_name] = encoded_name
 
-        for original_name, encoded_name in rename_dict.items():
-            logging.info(f'Encoding column name {original_name} to {encoded_name}')
-
         table = table.rename(rename_dict)
 
         # create elasticsearch index with fields that match the ones in the table
@@ -243,7 +237,6 @@ def main():
     parser.add_argument('--index', help='ES index name', required=True)
     parser.add_argument('--flag', help='ES index "DONE" file path')
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO)
 
     password = cloud.read_secret(
         project_id=config.config_retrieve(['elasticsearch', 'password_project_id'], ''),
@@ -253,13 +246,13 @@ def main():
 
     # no password, but we fail gracefully
     if password is None:
-        logging.warning(f'No permission to access ES password, skipping creation of {args.index}')
+        logger.warning(f'No permission to access ES password, skipping creation of {args.index}')
         sys.exit(0)
 
     host = config.config_retrieve(['elasticsearch', 'host'])
     port = config.config_retrieve(['elasticsearch', 'port'])
     username = config.config_retrieve(['elasticsearch', 'username'])
-    logging.info(f'Connecting to ElasticSearch: host="{host}", port="{port}", user="{username}"')
+    logger.info(f'Connecting to ElasticSearch: host="{host}", port="{port}", user="{username}"')
 
     ncpu = config.config_retrieve(['workflow', 'ncpu'], 4)
     hl.context.init_spark(master=f'local[{ncpu}]', quiet=True)
@@ -267,7 +260,7 @@ def main():
 
     mt = hl.read_matrix_table(args.mt_path)
 
-    logging.info('Getting rows and exporting to the ES')
+    logger.info('Getting rows and exporting to the ES')
 
     # get the rows, flattened, stripped of key and VEP annotations
     row_ht = elasticsearch_row(mt)
@@ -314,7 +307,6 @@ def elasticsearch_row(mt: hl.MatrixTable):
     # be normal fields. We can also re-key, but I believe this is computational?
     # PS: row key is often locus and allele, but does not have to be
     flat_table = flat_table.drop(*key)
-    flat_table.describe()
     return flat_table
 
 

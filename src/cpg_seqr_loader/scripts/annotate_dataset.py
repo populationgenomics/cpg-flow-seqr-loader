@@ -83,7 +83,6 @@ def annotate_dataset_mt(mt_path: str, out_mt_path: str):
             **{'%i_to_%i' % (i, i + 5): _genotype_filter_samples(_filter_samples_ab(i)) for i in range(0, 45, 5)},
         ),
     )
-    mt.describe()
     mt.write(out_mt_path, overwrite=True)
     logger.info(f'Written {out_mt_path}')
 
