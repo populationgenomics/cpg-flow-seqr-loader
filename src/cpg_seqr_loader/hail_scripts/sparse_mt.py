@@ -32,7 +32,7 @@ AS_INFO_AGG_FIELDS = {
 }
 
 
-def _get_info_agg_expr(
+def _get_info_agg_expr(  # noqa: PLR0915
     mt: hl.MatrixTable,
     sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['sum_agg_fields'],
     int32_sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['int32_sum_agg_fields'],
@@ -93,9 +93,9 @@ def _get_info_agg_expr(
             #  missing (error in v0.2.119).
             out_fields = {
                 f: hl.bind(
-                    lambda x: hl.if_else(f == 'AS_SB_TABLE', x, x[1:]),
+                    lambda x: hl.if_else(f == 'AS_SB_TABLE', x, x[1:]),  # noqa: B023
                     hl.range(hl.len(mt.alleles)).map(
-                        lambda i: hl.or_missing(mt.LA.contains(i), out_fields[f][mt.LA.index(i)])
+                        lambda i: hl.or_missing(mt.LA.contains(i), out_fields[f][mt.LA.index(i)])  # noqa: B023
                     ),
                 )
                 for f in fields
@@ -135,10 +135,11 @@ def _get_info_agg_expr(
                 # Rename annotation in the form 'AS_RAW_*_RankSum' to 'AS_*_RankSum'.
                 if k.startswith('AS_RAW_') and k.endswith('RankSum'):
                     agg_expr[f'{prefix}{k.replace("_RAW", "")}'] = hl.agg.array_agg(
-                        lambda x: agg_func(hl.or_missing(hl.is_defined(x), x[0])), expr
+                        lambda x: agg_func(hl.or_missing(hl.is_defined(x), x[0])),  # noqa: B023
+                        expr,
                     )
                 else:
-                    agg_expr[f'{prefix}{k}'] = hl.agg.array_agg(lambda x: agg_func(x), expr)
+                    agg_expr[f'{prefix}{k}'] = hl.agg.array_agg(lambda x: agg_func(x), expr)  # noqa: B023
             else:
                 agg_expr[f'{prefix}{k}'] = agg_func(expr)
 
@@ -203,14 +204,12 @@ def _get_info_agg_expr(
 
 def get_as_info_expr(
     mt: hl.MatrixTable,
-    sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['sum_agg_fields'],
-    int32_sum_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['int32_sum_agg_fields'],
-    median_agg_fields: list[str] | dict[str, hl.expr.NumericExpression] = INFO_AGG_FIELDS['median_agg_fields'],
-    array_sum_agg_fields: list[str] | dict[str, hl.expr.ArrayNumericExpression] = INFO_AGG_FIELDS[
-        'array_sum_agg_fields'
-    ],
-    alt_alleles_range_array_field: str = 'alt_alleles_range_array',
-    treat_fields_as_allele_specific: bool = False,
+    sum_agg_fields=INFO_AGG_FIELDS['sum_agg_fields'],
+    int32_sum_agg_fields=INFO_AGG_FIELDS['int32_sum_agg_fields'],
+    median_agg_fields=INFO_AGG_FIELDS['median_agg_fields'],
+    array_sum_agg_fields=INFO_AGG_FIELDS['array_sum_agg_fields'],
+    alt_alleles_range_array_field='alt_alleles_range_array',
+    treat_fields_as_allele_specific=False,
 ) -> hl.expr.StructExpression:
     """
     Return an allele-specific Struct containing typical VCF INFO fields from GVCF INFO fields stored in the MT entries.
@@ -275,7 +274,7 @@ def get_as_info_expr(
         # Modify aggregations to aggregate per allele
         agg_expr = {
             f: hl.agg.array_agg(
-                lambda ai: hl.agg.filter(mt.LA.contains(ai), expr),
+                lambda ai: hl.agg.filter(mt.LA.contains(ai), expr),  # noqa: B023
                 mt[alt_alleles_range_array_field],
             )
             for f, expr in agg_expr.items()
@@ -462,7 +461,7 @@ def default_compute_info(
     grp_ac_expr = {
         f: hl.agg.array_agg(
             lambda ai: hl.agg.filter(
-                mt.LA.contains(ai) & mt._ac_filter_groups[f],
+                mt.LA.contains(ai) & mt._ac_filter_groups[f],  # noqa: B023,SLF001
                 hl.agg.group_by(
                     get_adj_expr(mt.LGT, mt.GQ, mt.DP, mt.LAD),
                     hl.agg.sum(mt.LGT.one_hot_alleles(mt.LA.map(lambda x: hl.str(x)))[mt.LA.index(ai)]),

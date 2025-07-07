@@ -5,12 +5,11 @@ Read in a MT, and re-jig the annotations ready for Seqr Export
 from argparse import ArgumentParser
 
 import hail as hl
+from cpg_utils import hail_batch
 from loguru import logger
 
-from cpg_utils import config, hail_batch
 
-
-def annotate_dataset_mt(mt_path: str, out_mt_path: str):
+def annotate_dataset_mt(mt_path: str, out_mt_path: str) -> None:
     """
     Add dataset-level annotations.
     """
@@ -39,22 +38,16 @@ def annotate_dataset_mt(mt_path: str, out_mt_path: str):
     logger.info('Annotating genotypes')
     mt = mt.annotate_rows(genotypes=hl.agg.collect(hl.struct(**genotype_fields)))
 
-    def _genotype_filter_samples(fn):
+    def _genotype_filter_samples(fn) -> hl.expr.SetExpression:
         # Filter on the genotypes.
         return hl.set(mt.genotypes.filter(fn).map(lambda g: g.sample_id))
 
-    # 2022-07-28 mfranklin: Initially the code looked like:
-    #           {**_genotype_filter_samples(lambda g: g.num_alt == i) for i in ...}
-    #   except the lambda definition doesn't bind the loop variable i in this scope
-    #   instead let's define the filters as functions, and wrap them in a decorator
-    #   that captures the value of i.
-
     # top level - decorator
-    def _capture_i_decorator(func):
+    def _capture_i_decorator(func):  # noqa: ANN202
         # call the returned_function(i) which locks in the value of i
-        def _inner_filter(i):
+        def _inner_filter(i):  # noqa: ANN202
             # the _genotype_filter_samples will call this _func with g
-            def _func(g):
+            def _func(g):  # noqa: ANN202
                 return func(i, g)
 
             return _func
@@ -62,25 +55,25 @@ def annotate_dataset_mt(mt_path: str, out_mt_path: str):
         return _inner_filter
 
     @_capture_i_decorator
-    def _filter_num_alt(i, g):
+    def _filter_num_alt(i, g) -> bool:
         return i == g.num_alt
 
     @_capture_i_decorator
-    def _filter_samples_gq(i, g):
+    def _filter_samples_gq(i, g) -> hl.expr.BooleanExpression:
         return (g.gq >= i) & (g.gq < i + 5)
 
     @_capture_i_decorator
-    def _filter_samples_ab(i, g):
+    def _filter_samples_ab(i, g) -> hl.expr.BooleanExpression:
         return (g.num_alt == 1) & ((g.ab * 100) >= i) & ((g.ab * 100) < i + 5)
 
     mt = mt.annotate_rows(
         samples_no_call=_genotype_filter_samples(lambda g: g.num_alt == -1),
-        samples_num_alt=hl.struct(**{('%i' % i): _genotype_filter_samples(_filter_num_alt(i)) for i in range(1, 3, 1)}),
+        samples_num_alt=hl.struct(**{str(i): _genotype_filter_samples(_filter_num_alt(i)) for i in range(1, 3, 1)}),
         samples_gq=hl.struct(
-            **{('%i_to_%i' % (i, i + 5)): _genotype_filter_samples(_filter_samples_gq(i)) for i in range(0, 95, 5)},
+            **{f'{i}_to_{i + 5}': _genotype_filter_samples(_filter_samples_gq(i)) for i in range(0, 95, 5)},
         ),
         samples_ab=hl.struct(
-            **{'%i_to_%i' % (i, i + 5): _genotype_filter_samples(_filter_samples_ab(i)) for i in range(0, 45, 5)},
+            **{f'{i}_to_{i + 5}': _genotype_filter_samples(_filter_samples_ab(i)) for i in range(0, 45, 5)},
         ),
     )
     mt.write(out_mt_path, overwrite=True)

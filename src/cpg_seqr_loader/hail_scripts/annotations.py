@@ -35,7 +35,7 @@ def get_lowqual_expr(
     .. note::
 
         When running This lowqual annotation using QUALapprox, it differs from the GATK LowQual filter.
-        This is because GATK computes this annotation at the site level, which uses the least stringent prior for mixed sites.
+        This is b/c GATK computes this at the site level, which uses the least stringent prior for mixed sites.
         When run using AS_QUALapprox, this implementation can thus be more stringent for certain alleles at mixed sites.
 
     :param alleles: Array of alleles
@@ -44,7 +44,7 @@ def get_lowqual_expr(
     :param snv_phred_het_prior: Phred-scaled SNV heterozygosity prior (30 = 1/1000 bases, GATK default)
     :param indel_phred_threshold: Phred-scaled indel "emission" threshold (similar to GATK emission threshold)
     :param indel_phred_het_prior: Phred-scaled indel heterozygosity prior (30 = 1/1000 bases, GATK default)
-    :return: lowqual expression (BooleanExpression if `qual_approx_expr`is Numeric, Array[BooleanExpression] if `qual_approx_expr` is ArrayNumeric)
+    :return: lowqual expression
     """
     min_snv_qual = snv_phred_threshold + snv_phred_het_prior
     min_indel_qual = indel_phred_threshold + indel_phred_het_prior
@@ -147,16 +147,14 @@ def fs_from_sb(
     In addition to the default GATK behavior, setting `normalize` to `False` will perform a chi-squared test
     for large counts (> `min_cell_count`) instead of normalizing the cell values.
 
-    .. note::
-
         This function can either take
-        - an array of length four containing the forward and reverse strands' counts of ref and alt alleles: [ref fwd, ref rev, alt fwd, alt rev]
-        - a two dimensional array with arrays of length two, containing the counts: [[ref fwd, ref rev], [alt fwd, alt rev]]
+        - array of length four containing strands' counts of ref and alt alleles: [ref fwd, ref rev, alt fwd, alt rev]
+        - 2D array with arrays of length two, containing the counts: [[ref fwd, ref rev], [alt fwd, alt rev]]
 
     GATK code here: https://github.com/broadinstitute/gatk/blob/master/src/main/java/org/broadinstitute/hellbender/tools/walkers/annotator/FisherStrand.java
 
     :param sb: Count of ref/alt reads on each strand
-    :param normalize: Whether to normalize counts is sum(counts) > min_cell_count (normalize=True), or use a chi sq instead of FET (normalize=False)
+    :param normalize: Whether to normalize counts is sum(counts) > min_cell_count (normalize=True), or use a chi sq
     :param min_cell_count: Maximum count for performing a FET
     :param min_count: Minimum total count to output FS (otherwise null it output)
     :return: FS value
@@ -204,11 +202,9 @@ def sor_from_sb(sb: hl.expr.ArrayNumericExpression | hl.expr.ArrayExpression) ->
     """
     Compute `SOR` (Symmetric Odds Ratio test) annotation from  the `SB` (strand balance table) field.
 
-    .. note::
-
         This function can either take
-        - an array of length four containing the forward and reverse strands' counts of ref and alt alleles: [ref fwd, ref rev, alt fwd, alt rev]
-        - a two dimensional array with arrays of length two, containing the counts: [[ref fwd, ref rev], [alt fwd, alt rev]]
+        - array of length four containing strands' counts of ref and alt alleles: [ref fwd, ref rev, alt fwd, alt rev]
+        - 2D array with arrays of length two, containing the counts: [[ref fwd, ref rev], [alt fwd, alt rev]]
 
     GATK code here: https://github.com/broadinstitute/gatk/blob/master/src/main/java/org/broadinstitute/hellbender/tools/walkers/annotator/StrandOddsRatio.java
 

@@ -12,11 +12,10 @@ import math
 import sys
 import time
 
-from loguru import logger
-
 import elasticsearch
 import hail as hl
 from cpg_utils import cloud, config, to_path
+from loguru import logger
 
 # CONSTANTS stolen from https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7a8c629054e94533615e7d2/hail_scripts/elasticsearch/elasticsearch_utils.py#L13
 # make encoded values as human-readable as possible
@@ -306,8 +305,7 @@ def elasticsearch_row(mt: hl.MatrixTable):
     # When flattening, the table is unkeyed, which causes problems because our row keys should not
     # be normal fields. We can also re-key, but I believe this is computational?
     # PS: row key is often locus and allele, but does not have to be
-    flat_table = flat_table.drop(*key)
-    return flat_table
+    return flat_table.drop(*key)
 
 
 if __name__ == '__main__':
