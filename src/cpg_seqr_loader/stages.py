@@ -468,7 +468,8 @@ class AnnotateDataset(stage.DatasetStage):
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
         # only create final MTs for datasets specified in the config
-        if dataset.name not in config.config_retrieve(['workflow', 'write_mt_for_datasets'], default=[]):
+        # catches specific instructions to just run this Stage, and for the two stages which can follow this
+        if not utils.run_annotate_dataset(dataset.name):
             loguru.logger.info(f'Skipping AnnotateDataset mt subsetting for {dataset}')
             return self.make_outputs(dataset)
 

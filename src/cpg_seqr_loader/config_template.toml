@@ -5,9 +5,6 @@ name = 'seqr_loader'
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
 
-# when running the initial steps of the workflow (combining VDS, exporting as MT & VCF), use this argument
-#last_stages=["CreateDenseMtFromVdsWithHailStage"]
-
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
 
@@ -15,8 +12,14 @@ check_for_existing_vds = true
 manually_check_vds_sg_ids = true
 preemptible_vms = false
 
+# any datasets in this list will have the AnnotateDataset mt created, which is used for Seqr loading, VCF export, and Talos
+write_mt_for_datasets = []
+
 # add any datasets to this list to export a VCF from the Annotated Dataset mt
 write_vcf = []
+
+# datasets in this list will have an ElasticSearch Index created
+create_es_index_for_datasets = []
 
 [combiner]
 # used to decide if we should resume from a previous combiner plan

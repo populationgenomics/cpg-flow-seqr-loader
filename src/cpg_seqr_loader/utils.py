@@ -120,6 +120,18 @@ SPECIFIC_VDS_QUERY = gql(
 )
 
 
+@functools.cache
+def run_annotate_dataset(dataset: str) -> bool:
+    """Use all 3 config entries and make a single decision on whether to run the annotate_dataset stage."""
+    write_vcf_datasets = config.config_retrieve(['workflow', 'write_vcf'])
+    write_es_datasets = config.config_retrieve(['workflow', 'create_es_index_for_datasets'])
+    write_mt_datasets = config.config_retrieve(['workflow', 'write_mt_for_datasets'])
+
+    all_datasets = set.union(set(write_vcf_datasets), set(write_es_datasets), set(write_mt_datasets))
+
+    return dataset in all_datasets
+
+
 def query_for_specific_vds(vds_id: int) -> tuple[str, set[str]] | None:
     """
     query for a specific analysis of type entry_type for a dataset
