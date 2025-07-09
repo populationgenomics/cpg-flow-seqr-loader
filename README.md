@@ -65,7 +65,7 @@ analysis-runner \
   first_workflow
 ``` 
 
-1. Run the remainder of the workflow, using the same group of Cohorts. This begins from the exported VCF fragments, recombines all single VCFs into a whole-genome/exome VCF, then runs all annotation and variant quality recalibration steps. This is done by running the `full_workflow` command:
+2. Run the remainder of the workflow, using the same group of Cohorts. This begins from the exported VCF fragments, recombines all single VCFs into a whole-genome/exome VCF, then runs all annotation and variant quality recalibration steps. This is done by running the `full_workflow` command:
 
 ```bash
 analysis-runner \
@@ -81,4 +81,11 @@ analysis-runner \
 ```
 
 > **NOTE**: if you run the `full_workflow` without first running the `first_workflow`, it will fail. This is because the `full_workflow` command expects the VCF fragments to already exist in the output directory. This is a little frustrating, but Hail Batch's workflow planning has no way of reactively altering the number of jobs in a workflow graph once the workflow has been initiated. The exact number of fragments the VDS will be exported as is not known until the first workflow has been run, so the second workflow cannot be planned until the first has completed. Forcing the data into a specific number of partitions could control this (`config.workflow.densify_partitions`, called during the VDS -> MT densification process), but this isn't exactly respected when VCFs are exported, so it is not a reliable solution.
-> 
+
+Once the workflow has run to completion, there will be a MatrixTable in the tmp directory. Action of further stages is controlled via configuration options:
+
+* `workflow.write_mt_for_datasets`: the `SubsetMtToDatasetWithHail` and `AnnotateDataset` Stages will only run for Datasets which are specified in this list. If the list is empty, no further MatrixTable will be written.
+* `workflow.write_vcf`: the `AnnotatedDatasetMtToVcf` Stage will only run for datasets in this list. This generates a multisample VCF for each required dataset, which can be shared with collaborators or used for further analysis.
+* `workflow.create_es_index_for_datasets`: the `ExportMtAsEsIndex` Stage will only run for datasets in this list. This generates an ElasticSearch index for each required dataset, which can be used to load the data into Seqr.
+
+By default, none of these stages will run, which gives us granular control over the data being generated and pushed into long-term storage. Execution of `ExportMtAsEsIndex` is also conditional on the ElasticSearch credentials being successfully accessed as GCP Secrets at runtime, so if the service account running the workflow does not have access to the secrets, or the required configuration entries are absent, this stage will not run.
