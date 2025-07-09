@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name='cpg_seqr_loader'
@@ -23,6 +23,7 @@ classifiers=[
 dependencies=[
     'cpg-flow',
     'elasticsearch',
+    'hatchling',
     'loguru',
 ]
 
@@ -38,10 +39,14 @@ test = [
 
 [project.scripts]
 # the workflow runner script - entrypoint for the pipeline
-run_workflow = 'cpg_seqr_loader.run_workflow:cli_main'
+first_workflow = 'cpg_seqr_loader.first_workflow:cli_main'
+full_workflow = 'cpg_seqr_loader.full_workflow:cli_main'
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.hatch.build.targets.wheel]
+packages = ["src/cpg_seqr_loader"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
 
 [options]
 include_package_data = true
@@ -123,3 +128,9 @@ commit_args = ""
 filename = "pyproject.toml"
 search = "version='{current_version}'"
 replace = "version='{new_version}'"
+
+
+[[tool.bumpversion.files]]
+filename = "README.md"
+search = "{current_version}"
+replace = "{new_version}"
