@@ -13,9 +13,10 @@ import sys
 import time
 
 import elasticsearch
-import hail as hl
 from cpg_utils import cloud, config, to_path
 from loguru import logger
+
+import hail as hl
 
 # CONSTANTS stolen from https://github.com/broadinstitute/seqr-loading-pipelines/blob/c113106204165e22b7a8c629054e94533615e7d2/hail_scripts/elasticsearch/elasticsearch_utils.py#L13
 # make encoded values as human-readable as possible

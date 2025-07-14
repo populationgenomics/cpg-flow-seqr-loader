@@ -6,10 +6,11 @@ Specifically we need to drop/modify the Force argument to resume from previous C
 
 import argparse
 
-import hail as hl
 import loguru
 from cpg_flow import utils
 from cpg_utils import config, hail_batch
+
+import hail as hl
 
 
 def main(

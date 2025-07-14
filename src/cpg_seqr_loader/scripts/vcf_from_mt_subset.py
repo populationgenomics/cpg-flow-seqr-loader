@@ -1,7 +1,8 @@
 from argparse import ArgumentParser
 
-import hail as hl
 from loguru import logger
+
+import hail as hl
 
 
 def vcf_from_mt_subset(input_mt: str, output: str):

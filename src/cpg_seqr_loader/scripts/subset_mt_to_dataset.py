@@ -4,9 +4,10 @@ pull out a single Dataset's samples from a MatrixTable
 
 from argparse import ArgumentParser
 
-import hail as hl
 import loguru
 from cpg_utils import config, hail_batch, to_path
+
+import hail as hl
 
 
 def subset_mt_to_samples(input_mt: str, sg_id_file: str, output: str):

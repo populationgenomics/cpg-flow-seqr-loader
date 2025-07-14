@@ -6,7 +6,7 @@ This repository is a CPG-Flow migration of the [RD_Combiner](https://github.com/
 
 The intention of these workflows is to continue on from the single-sample workflow (alignment, variant calling), and carry out the multi-sample steps of the analysis, including:
 
-- Using the Hail gVCF Combiner to create a VDS representing the whole joint callset. 
+- Using the Hail gVCF Combiner to create a VDS representing the whole joint callset.
 - Densifying the VDS representation to create a MatrixTable and a VCF
 - Joining the fragments of the VCF into a single genome/exome-wide VCF
 - Annotating the VCF with gene and transcript consequences (VEP)
@@ -48,7 +48,7 @@ src
 
 This is a brief README, and is a stand-in for a more comprehensive SOP.
 
-CPG-Flow workflows are operated entirely by defining input Cohorts (see [here](https://github.com/populationgenomics/team-docs/blob/main/metamist/cohorts.md)). Once a collection of input Cohorts has been defined, the workflow can be run in two steps as follows: 
+CPG-Flow workflows are operated entirely by defining input Cohorts (see [here](https://github.com/populationgenomics/team-docs/blob/main/metamist/cohorts.md)). Once a collection of input Cohorts has been defined, the workflow can be run in two steps as follows:
 
 1. Run the first part of the workflow. This combines new gVCFs into the existing VDS, and densifies the resulting data structure into a MatrixTable, which is exported as a collection of sites-only VCFs to be processed an annotated by tools which require a VCF input. This is done by running the `first_workflow` command:
 
@@ -63,7 +63,7 @@ analysis-runner \
     --access-level full \
     --output-dir seqr_loader \
   first_workflow
-``` 
+```
 
 2. Run the remainder of the workflow, using the same group of Cohorts. This begins from the exported VCF fragments, recombines all single VCFs into a whole-genome/exome VCF, then runs all annotation and variant quality recalibration steps. This is done by running the `full_workflow` command:
 

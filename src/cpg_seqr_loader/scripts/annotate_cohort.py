@@ -55,10 +55,11 @@ The popmax AF/fafmax should be taken from the separate 'max' fields as they are 
 from argparse import ArgumentParser
 from os.path import join
 
-import hail as hl
 import loguru
 from cpg_flow import utils
 from cpg_utils import Path, config, hail_batch, to_path
+
+import hail as hl
 
 from cpg_seqr_loader.hail_scripts import variant_id, vep
 

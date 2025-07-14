@@ -7,11 +7,12 @@ import functools
 import hashlib
 from typing import TYPE_CHECKING
 
-import hail as hl
 import loguru
 from cpg_flow import targets
 from cpg_utils import Path, config, hail_batch
 from metamist.graphql import gql, query
+
+import hail as hl
 
 if TYPE_CHECKING:
     from hailtop.batch.resource import ResourceGroup

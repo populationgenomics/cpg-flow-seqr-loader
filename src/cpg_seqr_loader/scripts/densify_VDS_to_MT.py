@@ -14,10 +14,11 @@ Additional arguments:
 
 import argparse
 
-import hail as hl
 import loguru
 from cpg_flow import utils
 from cpg_utils import config, hail_batch
+
+import hail as hl
 
 from cpg_seqr_loader.hail_scripts.sparse_mt import default_compute_info
 from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
