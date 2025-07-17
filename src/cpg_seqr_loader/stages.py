@@ -5,6 +5,7 @@ use the gVCF combiner instead of joint-calling.
 
 import loguru
 from cpg_flow import stage, targets, workflow
+from cpg_flow.stage import StageOutput
 from cpg_utils import Path, cloud, config
 from google.api_core.exceptions import PermissionDenied
 
@@ -16,6 +17,7 @@ from cpg_seqr_loader.jobs.AnnotateVcfsWithVep import add_vep_jobs
 from cpg_seqr_loader.jobs.CombineGvcfsIntoVds import create_combiner_jobs
 from cpg_seqr_loader.jobs.ConcatenateVcfFragmentsWithGcloud import create_and_run_compose_script
 from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_jobs
+from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
@@ -30,23 +32,57 @@ SHARD_MANIFEST = 'shard-manifest.txt'
 
 @stage.stage(analysis_type='combiner')
 class CombineGvcfsIntoVds(stage.MultiCohortStage):
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
-        return self.prefix / f'{multicohort.name}.vds'
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
+        return {
+            'vds': self.prefix / f'{multicohort.name}.vds',
+            'tmp': str(self.tmp_prefix / 'temp_dir'),
+        }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        output = self.expected_outputs(multicohort)
+        outputs = self.expected_outputs(multicohort)
 
         job = create_combiner_jobs(
             multicohort=multicohort,
-            output_vds=output,
+            output_vds=outputs['vds'],
             combiner_plan=self.tmp_prefix / 'combiner_plan.json',
-            temp_dir=self.tmp_prefix / 'temp_dir',
+            temp_dir=outputs['tmp'],
             job_attrs=self.get_job_attrs(multicohort),
         )
+        return self.make_outputs(multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=CombineGvcfsIntoVds)
+class DeleteCombinerTemp(stage.MultiCohortStage):
+    """
+    new stage for purging the temp data created during VDS combining
+
+    This could be an additional job in the previous stage, but it is a separate job
+    VDSs can take a LONG time to delete given the high level of fragmentation, and the previous step can generate
+    many VDSs. As such, if this was in the previous stage, the start of the next step (Creating a MT from the VDS)
+    would be on hold until all VDSs were deleted, which could take a long time.
+
+    Splitting this out into a separate dependent stage allows the next step to start immediately, whilst deletions are
+    going on in parallel. It also allows this Stage to be skipped through configuration, if the user does not want to
+    explicitly delete the temporary data created by the combiner.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
+        return self.prefix / 'CombinerIntermediatesDeleted.txt'
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> StageOutput:
+        combiner_outputs = inputs.as_dict(multicohort, CombineGvcfsIntoVds)
+
+        output = self.expected_outputs(multicohort)
+
+        job = delete_temp_data_recursive(
+            temp_path=combiner_outputs['tmp'],
+            logfile=output,
+        )
+
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(required_stages=[CombineGvcfsIntoVds])
+@stage.stage(required_stages=CombineGvcfsIntoVds)
 class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
         """

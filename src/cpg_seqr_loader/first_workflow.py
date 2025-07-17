@@ -8,7 +8,7 @@ import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import CreateDenseMtFromVdsWithHail
+from cpg_seqr_loader.stages import CreateDenseMtFromVdsWithHail, DeleteCombinerTemp
 
 
 def cli_main():
@@ -16,7 +16,7 @@ def cli_main():
     parser.add_argument('--dry_run', action='store_true', help='Dry run')
     args = parser.parse_args()
 
-    workflow.run_workflow(stages=[CreateDenseMtFromVdsWithHail], dry_run=args.dry_run)
+    workflow.run_workflow(stages=[DeleteCombinerTemp, CreateDenseMtFromVdsWithHail], dry_run=args.dry_run)
 
 
 if __name__ == '__main__':

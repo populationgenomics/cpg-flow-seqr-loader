@@ -111,7 +111,7 @@ def create_combiner_jobs(
         python -m cpg_seqr_loader.scripts.run_combiner \\
             --output_vds {output_vds!s} \\
             --plan {combiner_plan!s} \\
-            --tmp {temp_dir / 'temp_dir'!s} {input_vds_arg} {gvcf_add_arg} {sg_remove_arg}
+            --tmp {temp_dir!s} {input_vds_arg} {gvcf_add_arg} {sg_remove_arg}
         """
     )
 
