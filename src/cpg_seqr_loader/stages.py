@@ -35,7 +35,7 @@ class CombineGvcfsIntoVds(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
         return {
             'vds': self.prefix / f'{multicohort.name}.vds',
-            'tmp': str(self.tmp_prefix / 'temp_dir'),
+            'tmp': self.tmp_prefix / 'temp_dir',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
