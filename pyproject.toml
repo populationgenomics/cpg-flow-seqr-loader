@@ -25,6 +25,7 @@ dependencies=[
     'elasticsearch',
     'hatchling',
     'loguru',
+    "alphagenome",
 ]
 
 [project.urls]
