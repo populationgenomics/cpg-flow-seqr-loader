@@ -21,7 +21,8 @@ classifiers=[
 ]
 
 dependencies=[
-    'alphagenome==0.1.0',
+#    alphagenome==0.1.0', removed because of protobuf incompatbility: hail==0.2.134 depends on protobuf==3.20.2 and all versions of alphagenome depend on 
+#    protobuf>=5.28.3, we can conclude that all versions of alphagenome and hail==0.2.134 are incompatible. built in docker instead
     'cpg-flow==v0.3.2',
     'elasticsearch==9.0.2',
     'hail==0.2.134',
