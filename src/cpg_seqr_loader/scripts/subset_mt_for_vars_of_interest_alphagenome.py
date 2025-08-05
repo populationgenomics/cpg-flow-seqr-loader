@@ -43,7 +43,7 @@ def get_thresholds_from_config() -> tuple[float, float, int]:
         A single tuple, containing Callset AF, Population AF, and GQ thresholds.
     """
 
-    if thresholds := config.config_retrieve('alphagenome_params'):
+    if thresholds := config.config_retrieve('alphagenome_params', None):
         return (
             thresholds.get('callset_af', CALLSET_AF),
             thresholds.get('pop_af', POP_AF),
