@@ -25,6 +25,7 @@ dependencies=[
 #    protobuf>=5.28.3, we can conclude that all versions of alphagenome and hail==0.2.134 are incompatible. built in docker instead
     'cpg-flow==v0.3.2',
     'elasticsearch==9.0.2',
+    'fsspec',
     'hail==0.2.134',
     'hatchling',
 ]
