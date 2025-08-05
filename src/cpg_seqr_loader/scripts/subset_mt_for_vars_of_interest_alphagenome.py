@@ -82,6 +82,9 @@ def main(input_path: str, output_path: str):
         exploded.vep.transcript_consequences.consequence_terms.any(lambda term: interesting_consequences.contains(term))
     )
 
+    # only need the rows
+    results = results.rows()
+
     # results = exploded.filter_rows(
     #     exploded.vep.transcript_consequences.consequence_terms.contains(
     #         '3_prime_UTR_variant' or '5_prime_UTR_variant' or 'splice_region_variant'
@@ -89,8 +92,7 @@ def main(input_path: str, output_path: str):
     # )
 
     selected = (
-        results.rows()
-        .select(
+        results.select(
             CHROM=results.locus.contig,
             POS=results.locus.position,
             REF=results.alleles[0],
