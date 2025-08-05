@@ -101,7 +101,7 @@ def main(input_path: str, output_path: str):
         ##            hl.set(rows.vep.transcript_consequences.consequence_terms)
         ##        ))
     )
-    deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT').distinct()
+    deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT').select().distinct()
 
     # Re-key by the selected fields to remove duplicates
     deduped.export(output_path)
