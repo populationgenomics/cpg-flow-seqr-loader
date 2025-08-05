@@ -59,12 +59,12 @@ def main(input_path: str, output_path: str):
     # start a batch with a service backend
     hail_batch.init_batch()
 
-    mt_rows = hl.read_matrix_table(input_path).rows()
+    mt = hl.read_matrix_table(input_path)
 
     callset_af, pop_af, gq_threshold = get_thresholds_from_config()
 
     # Filter for rare variants within the callset
-    filtered_mt = mt_rows.filter_rows(mt_rows.info.AF[0] < callset_af)
+    filtered_mt = mt.filter_rows(mt.info.AF[0] < callset_af)
 
     # Filter for rare variants in gnomAD
     filtered_mt = filtered_mt.filter_rows(filtered_mt.gnomad_genomes.AF < pop_af)
@@ -74,7 +74,7 @@ def main(input_path: str, output_path: str):
 
     filtered_mt = hl.variant_qc(filtered_mt)
 
-    filtered_mt_GQ = filtered_mt.filter_rows(filtered_mt.row.variant_qc.gq_stats.mean > gq_threshold)
+    filtered_mt_GQ = filtered_mt.filter_rows(filtered_mt.variant_qc.gq_stats.mean > gq_threshold)
     exploded = filtered_mt_GQ.explode_rows(filtered_mt_GQ.vep.transcript_consequences)
 
     interesting_consequences = hl.set(config.config_retrieve('alphagenome_consequences', CSQ))
@@ -89,7 +89,8 @@ def main(input_path: str, output_path: str):
     # )
 
     selected = (
-        results.select(
+        results.rows()
+        .select(
             CHROM=results.locus.contig,
             POS=results.locus.position,
             REF=results.alleles[0],
