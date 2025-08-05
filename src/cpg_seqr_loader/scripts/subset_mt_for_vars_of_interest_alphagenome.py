@@ -1,8 +1,9 @@
 import argparse
 import hail as hl
-""" 
-The code reads a Hail MatrixTable, filters for rare variants (AF < 0.01), and attempts 
-to select variants with specific functional consequences (3' UTR, 5' UTR, splice region). 
+
+"""
+The code reads a Hail MatrixTable, filters for rare variants (AF < 0.01), and attempts
+to select variants with specific functional consequences (3' UTR, 5' UTR, splice region).
 It exports deduplicated variant information to a TSV file.
 
 Possible improvements:
@@ -15,45 +16,96 @@ Filter by genomic intervals (e.g., exons, promoters)
 Apply sample-level filters (e.g., phenotype, ancestry)
 """
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-i', '--input_mt', required=True)
-parser.add_argument('--out', required=True)
-args = parser.parse_args()
+from cpg_utils import hail_batch, config
 
 
-hl.init()
-mt=hl.read_matrix_table(args.input_mt)
-
-##mt.aggregate_rows(hl.agg.count())         # Count of variants
-##mt.aggregate_cols(hl.agg.collect(mt.s))   # List of sample IDs
-##mt.aggregate_entries(hl.agg.mean(mt.DP))  # Mean depth across all entries
-
-
-# Filter for rare variants
-filtered_mt = mt.filter_rows(mt.info.AF[0] < 0.01)
-filtered_mt = hl.sample_qc(filtered_mt)
-filtered_mt = hl.variant_qc(filtered_mt)
-
-filtered_mt_GQ=filtered_mt.filter_rows(filtered_mt.row.variant_qc.gq_stats.mean > 35)
-exploded = filtered_mt_GQ.explode_rows(filtered_mt_GQ.vep.transcript_consequences)
-#exploded = exploded.checkpoint('exploded.mt')
-
-interesting_consequences = hl.set(['3_prime_UTR_variant', '5_prime_UTR_variant', 'splice_region_variant'])
-results=exploded.filter_rows(exploded.vep.transcript_consequences.consequence_terms.contains("3_prime_UTR_variant" or '5_prime_UTR_variant' or'splice_region_variant'))
+# Default values
+POP_AF = 0.01
+CALLSET_AF = 0.01
+GQ_THRESHOLD = 35
+CSQ = ['3_prime_UTR_variant', '5_prime_UTR_variant', 'splice_region_variant']
 
 
-rows = results.rows().key_by()
-selected = rows.select(
-    CHROM = rows.locus.contig,
-    POS = rows.locus.position,
-    REF = rows.alleles[0],
-    ALT = rows.alleles[1],
-##    FILTER_CRITERIA=hl.delimit(
-##        interesting_consequences.intersection(
-##            hl.set(rows.vep.transcript_consequences.consequence_terms)
-##        ))
-)
+def cli_main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', required=True)
+    parser.add_argument('--out', required=True)
+    args = parser.parse_args()
 
-# Re-key by the selected fields to remove duplicates
-deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT').distinct()
-deduped.export(args.out)
+    main(input_path=args.i, output_path=args.out)
+
+
+def get_thresholds_from_config() -> tuple[float, float, int]:
+    """
+    Quick method to allow fetching thresholds from the config file, instead of hard coding.
+
+    Returns:
+        A single tuple, containing Callset AF, Population AF, and GQ thresholds.
+    """
+
+    if thresholds := config.config_retrieve('alphagenome_params'):
+        return (
+            thresholds.get('callset_af', CALLSET_AF),
+            thresholds.get('pop_af', POP_AF),
+            thresholds.get('gq_threshold', GQ_THRESHOLD),
+        )
+    else:
+        return CALLSET_AF, POP_AF, GQ_THRESHOLD
+
+
+def main(input_path: str, output_path: str):
+    """Main function to run the script."""
+
+    # start a batch with a service backend
+    hail_batch.init_batch()
+
+    mt_rows = hl.read_matrix_table(input_path).rows()
+
+    callset_af, pop_af, gq_threshold = get_thresholds_from_config()
+
+    # Filter for rare variants within the callset
+    filtered_mt = mt_rows.filter_rows(mt_rows.info.AF[0] < callset_af)
+
+    # Filter for rare variants in gnomAD
+    filtered_mt = filtered_mt.filter_rows(filtered_mt.gnomad_genomes.AF < pop_af)
+
+    # Todo remove, unused?
+    # filtered_mt = hl.sample_qc(filtered_mt)
+
+    filtered_mt = hl.variant_qc(filtered_mt)
+
+    filtered_mt_GQ = filtered_mt.filter_rows(filtered_mt.row.variant_qc.gq_stats.mean > gq_threshold)
+    exploded = filtered_mt_GQ.explode_rows(filtered_mt_GQ.vep.transcript_consequences)
+
+    interesting_consequences = hl.set(config.config_retrieve('alphagenome_consequences', CSQ))
+    results = exploded.filter_rows(
+        exploded.vep.transcript_consequences.consequence_terms.any(lambda term: term in interesting_consequences)
+    )
+
+    # results = exploded.filter_rows(
+    #     exploded.vep.transcript_consequences.consequence_terms.contains(
+    #         '3_prime_UTR_variant' or '5_prime_UTR_variant' or 'splice_region_variant'
+    #     )
+    # )
+
+    selected = (
+        results.select(
+            CHROM=results.locus.contig,
+            POS=results.locus.position,
+            REF=results.alleles[0],
+            ALT=results.alleles[1],
+            ##    FILTER_CRITERIA=hl.delimit(
+            ##        interesting_consequences.intersection(
+            ##            hl.set(rows.vep.transcript_consequences.consequence_terms)
+            ##        ))
+        )
+        .key_by('CHROM', 'POS', 'REF', 'ALT')
+        .distinct()
+    )
+
+    # Re-key by the selected fields to remove duplicates
+    selected.export(output_path)
+
+
+if __name__ == '__main__':
+    cli_main()
