@@ -79,7 +79,7 @@ def main(input_path: str, output_path: str):
 
     interesting_consequences = hl.set(config.config_retrieve('alphagenome_consequences', CSQ))
     results = exploded.filter_rows(
-        exploded.vep.transcript_consequences.consequence_terms.any(lambda term: term in interesting_consequences)
+        exploded.vep.transcript_consequences.consequence_terms.any(lambda term: interesting_consequences.contains(term))
     )
 
     # results = exploded.filter_rows(
