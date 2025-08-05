@@ -91,23 +91,20 @@ def main(input_path: str, output_path: str):
     #     )
     # )
 
-    selected = (
-        results.select(
-            CHROM=results.locus.contig,
-            POS=results.locus.position,
-            REF=results.alleles[0],
-            ALT=results.alleles[1],
-            ##    FILTER_CRITERIA=hl.delimit(
-            ##        interesting_consequences.intersection(
-            ##            hl.set(rows.vep.transcript_consequences.consequence_terms)
-            ##        ))
-        )
-        .key_by('CHROM', 'POS', 'REF', 'ALT')
-        .distinct()
+    selected = results.annotate(
+        CHROM=results.locus.contig,
+        POS=results.locus.position,
+        REF=results.alleles[0],
+        ALT=results.alleles[1],
+        ##    FILTER_CRITERIA=hl.delimit(
+        ##        interesting_consequences.intersection(
+        ##            hl.set(rows.vep.transcript_consequences.consequence_terms)
+        ##        ))
     )
+    deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT').distinct()
 
     # Re-key by the selected fields to remove duplicates
-    selected.export(output_path)
+    deduped.export(output_path)
 
 
 if __name__ == '__main__':
