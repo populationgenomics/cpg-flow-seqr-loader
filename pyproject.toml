@@ -26,6 +26,7 @@ dependencies=[
     'cpg-flow==v0.3.2',
     'elasticsearch==9.0.2',
     'fsspec',
+    'gcsfs',
     'hail==0.2.134',
     'hatchling',
 ]
