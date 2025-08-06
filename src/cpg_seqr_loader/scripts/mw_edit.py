@@ -62,9 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     P.add_argument('--variants', required=True, help='TSV of variants.')
     P.add_argument('--plot-non-sig', dest='plot_non_sig', action='store_true', help='Plot even when not significant.')
-    P.add_argument(
-        '--output-table', default='alphagenome_scan_results.csv', help='Output summary table path (csv/tsv/xlsx).'
-    )
+    P.add_argument('--output', required=True, help='Folder to write all results to.')
     P.add_argument(
         '--output-table-sum',
         default='alphagenome_scan_results_variant_organ_summary.csv',
@@ -371,6 +369,8 @@ def write_table(df: pd.DataFrame, path: str):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    output_as_path = to_anypath(args.output)
+
     # load inputs
     variants_df = df = pd.read_csv(to_anypath(args.variants), sep='\t')
     transcript_extractor = load_transcript_extractor(args.gtf)
@@ -527,9 +527,7 @@ def main(argv: list[str] | None = None) -> int:
                 for r in results_rows[-n_tracks:]
             )
             if sig_any or args.plot_non_sig:
-                plot_path = to_anypath(args.output_dir) / (
-                    f'{ontology}_{number_rank}_{variant.chromosome}_{variant.position}.png'
-                )
+                plot_path = output_as_path / (f'{ontology}_{number_rank}_{variant.chromosome}_{variant.position}.png')
                 plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
                 # back-fill plot_file for recent rows
                 for r in results_rows[-n_tracks:]:
@@ -544,7 +542,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     res_df = pd.DataFrame(results_rows)
-    write_table(res_df, args.output_table)
+    detailed_results = str(output_as_path / 'alphagenome_scan_results.csv')
+    write_table(res_df, detailed_results)
 
     # variant×organ summary
     agg = (
@@ -563,10 +562,9 @@ def main(argv: list[str] | None = None) -> int:
     agg = agg.merge(sig_tracks, how='left', on=['chrom', 'pos', 'ref', 'alt', 'ontology'])
     agg['track_name'] = agg['track_name'].fillna('')
 
-    write_table(agg, str(args.output_table_sum))
+    summary_output_path = str(output_as_path / 'alphagenome_scan_results_variant_organ_summary.csv')
+    write_table(agg, summary_output_path)
 
-    print(f'Wrote detailed results to {args.output_table}')
-    print(f'Wrote variant×organ summary to {args.output_table_sum}')
     print('Done.')
     return 0
 
