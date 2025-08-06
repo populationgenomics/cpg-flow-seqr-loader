@@ -25,7 +25,7 @@ API_KEY="$3"
 # stage outputs locally, then copy out
 mkdir alphagenome_outputs
 
-python3 src/cpg_seqr_loader/scripts/alphagenome_splice_variant_scanner_mw.py \
+python3 src/cpg_seqr_loader/scripts/mw_edit.py \
     --variants "${INPUT_FILE}" \
     --output alphagenome_outputs \
     --api-key "${API_KEY}"
