@@ -61,15 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     P.add_argument('--variants', required=True, help='TSV of variants.')
-    P.add_argument('--plot-non-sig', dest='plot_non_sig', action='store_true', help='Plot even when not significant.')
     P.add_argument('--output', required=True, help='Folder to write all results to.')
-    P.add_argument(
-        '--output-table-sum',
-        default='alphagenome_scan_results_variant_organ_summary.csv',
-        help='Output organ summary table path (csv/tsv/xlsx).',
-    )
-    P.add_argument('--output-dir', default='alphagenome_scan_plots', help='Dir for plot images.')
-    P.add_argument('--api-key', dest='api_key', default=None, help='AlphaGenome API key; else from env.')
+    P.add_argument('--api-key', required=True, help='AlphaGenome API key.')
     P.add_argument(
         '--gtf',
         default='https://storage.googleapis.com/alphagenome/reference/gencode/hg38/gencode.v46.annotation.gtf.gz.feather',
@@ -88,17 +81,6 @@ def load_transcript_extractor(gtf_path: str):
     gtf_t = gene_annotation.filter_protein_coding(gtf)
     gtf_t = gene_annotation.filter_to_longest_transcript(gtf_t)
     return transcript_utils.TranscriptExtractor(gtf_t)
-
-
-def get_dna_model(api_key: str | None = None):
-    if api_key is None:
-        try:
-            api_key = colab_utils.get_api_key()
-        except Exception as e:
-            # If not Colab
-            print(f'Error getting API key from Colab: {e}')
-            api_key = ''  # Insert your API key here if not working
-    return dna_client.create(api_key)
 
 
 # ------------------------------------------------------------------
@@ -374,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     # load inputs
     variants_df = df = pd.read_csv(to_anypath(args.variants), sep='\t')
     transcript_extractor = load_transcript_extractor(args.gtf)
-    dna_model = get_dna_model(args.api_key)
+    dna_model = dna_client.create(args.api_key)
 
     results_rows = []
 
