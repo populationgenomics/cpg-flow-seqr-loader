@@ -98,4 +98,3 @@ gq_threshold = 35
 #These are the consequences to filter variants by and are dependant on previous annotation stages
 consequences = ['3_prime_UTR_variant', '5_prime_UTR_variant', 'splice_region_variant']
 # Consequences to filter variants by, e.g.:
-
