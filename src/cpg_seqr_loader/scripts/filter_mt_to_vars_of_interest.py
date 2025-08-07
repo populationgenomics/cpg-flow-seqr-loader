@@ -57,7 +57,7 @@ def main(
 ):
     """
     Parameters
-    ----------
+    -----------
     mt_path : path to input MatrixTable
     output_path : output location of a TSV file
     """
@@ -80,7 +80,8 @@ def main(
         filtered_mt = hl.variant_qc(filtered_mt)
 
         filtered_mt_gq = filtered_mt.filter_rows(
-            filtered_mt.variant_qc.gq_stats.mean > config.config_retrieve(['alphagenome_params', 'gq_threshold'], GQ_THRESHOLD)
+            filtered_mt.variant_qc.gq_stats.mean
+            > config.config_retrieve(['alphagenome_params', 'gq_threshold'], GQ_THRESHOLD)
         )
         exploded = filtered_mt_gq.explode_rows(filtered_mt_gq.vep.transcript_consequences)
 
