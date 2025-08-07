@@ -28,7 +28,6 @@ from cpg_utils.hail_batch import init_batch
 
 import hail as hl
 
-
 # Default values
 POP_AF = 0.01
 CALLSET_AF = 0.01
