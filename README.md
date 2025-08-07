@@ -55,7 +55,7 @@ CPG-Flow workflows are operated entirely by defining input Cohorts (see [here](h
 ```bash
 analysis-runner \
     --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-seqr-loader:0.1.0 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-seqr-loader:0.1.2 \
     --config src/cpg_seqr_loader/config_template.toml \
     --config cohorts.toml \  # containing the inputs_cohorts and sequencing_type
     --dataset seqr \
@@ -70,7 +70,7 @@ analysis-runner \
 ```bash
 analysis-runner \
     --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-seqr-loader:0.1.0 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-seqr-loader:0.1.2 \
     --config src/cpg_seqr_loader/config_template.toml \
     --config cohorts.toml \  # containing the inputs_cohorts and sequencing_type
     --dataset seqr \
