@@ -1,13 +1,24 @@
 """
-Takes a path to a MatrixTable and a name prefix
-Writes data into the test bucket for the dataset
+Script for reading in a seqr_loader-format MatrixTable, filtering to consequences and genes of interest, and writing
+the result out as a TSV file.
 
-Optionally sample IDs and a locus can be provided to reduce the output
-If sample IDs are specified, output subset contains only those
---format arg sets the output type (mt|vcf|both), default is MT
+CLI Parameters:
+- `-i`: Path to the input MatrixTable.
+- `--out`: Output path for the resulting TSV file.
 
-new behaviour: `--genes` as a CLI argument, a list of whitespace-delimited ENSG IDs. Filters MT to rows/variants which
-    have at least one of the query genes present in the consequence annotations
+Filter parameters are mediated through a configuration file, allowing for adjustment without changing the code:
+- `alphagenome_params.genes`: List of gene IDs to filter by.
+- `alphagenome_params.callset_af`: Allele frequency threshold for filtering variants in the callset (default: 0.01).
+- `alphagenome_params.pop_af`: Allele frequency threshold for filtering variants in the population (default: 0.01).
+- `alphagenome_params.gq_threshold`: Genotype quality threshold for filtering variants (default: 35).
+- `alphagenome_params.consequences`: List of functional consequences to filter by
+
+It exports deduplicated variant information to a TSV file.
+
+Possible improvements:
+Use more granular allele frequency thresholds (e.g., population-specific AF)
+Filter by additional functional consequences (e.g., missense, LoF)
+Filter by genomic intervals (e.g., exons, promoters)
 """
 
 from argparse import ArgumentParser
@@ -16,21 +27,6 @@ from cpg_utils import config
 from cpg_utils.hail_batch import init_batch
 
 import hail as hl
-
-"""
-The code reads a Hail MatrixTable, filters for rare variants (AF < 0.01), and attempts
-to select variants with specific functional consequences (3' UTR, 5' UTR, splice region).
-It exports deduplicated variant information to a TSV file.
-
-Possible improvements:
-
-Use more granular allele frequency thresholds (e.g., population-specific AF)
-Select variants in specific genes or gene sets
-Filter by additional functional consequences (e.g., missense, LoF)
-Use external annotations (e.g., ClinVar, gnomAD)
-Filter by genomic intervals (e.g., exons, promoters)
-Apply sample-level filters (e.g., phenotype, ancestry)
-"""
 
 
 # Default values
@@ -44,6 +40,10 @@ def filter_to_gene_ids(
     mt: hl.MatrixTable,
     gene_ids: set[str],
 ) -> hl.MatrixTable:
+    """
+    Reads a set of ENSG strings as a hl.Set, and filters the MatrixTable to rows where at least one of the transcript
+    consequences has a gene ID in the set.
+    """
     # turn the python set of Strings into a Hail Set Expression
     hl_gene_set = hl.set(gene_ids)
 
