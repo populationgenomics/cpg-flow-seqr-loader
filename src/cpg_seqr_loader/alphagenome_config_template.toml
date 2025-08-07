@@ -1,0 +1,101 @@
+[workflow]
+
+name = 'seqr_loader'
+
+# used to make sure we don't repeat previously completed stages
+check_expected_outputs = true
+
+# the method to register outputs, can be missing - will not generate metamist analysis entries
+status_reporter = 'metamist'
+
+check_for_existing_vds = true
+manually_check_vds_sg_ids = true
+preemptible_vms = false
+
+# any datasets in this list will have the AnnotateDataset mt created, which is used for Seqr loading, VCF export, and Talos
+write_mt_for_datasets = []
+
+# add any datasets to this list to export a VCF from the Annotated Dataset mt
+write_vcf = []
+
+# datasets in this list will have an ElasticSearch Index created
+create_es_index_for_datasets = []
+
+[combiner]
+# used to decide if we should resume from a previous combiner plan
+force_new_combiner = false
+# highem, standard, or a string, e.g. "4Gi"
+driver_memory = "highmem"
+# string, e.g. "4Gi"
+driver_storage = "10Gi"
+# integer
+driver_cores = 2
+# highem, standard, or a string, e.g. "4Gi"
+worker_memory = "highmem"
+
+# The number of gVCFs/VDSs to combine in each intermediate step
+branch_factor = 50
+
+# the number of intermediate merges to run in parallel with each step
+gvcf_batch_size = 5
+
+# when merging multiple VDS, we find the largest VDS, repartition to target_records variants per partition
+# then repartition all VDSs to match those intervals prior to merging
+target_records = 30000
+
+[vqsr]
+# VQSR, when applying model, targets indel_filter_level and snp_filter_level
+# sensitivities. The tool matches them internally to a VQSLOD score cutoff
+# based on the model's estimated sensitivity to a set of true variants.
+snp_filter_level = 99.7
+indel_filter_level = 99.0
+
+# these are used when calculating how many fragments to send to each job
+vqsr_training_fragments_per_job = 100
+vqsr_apply_fragments_per_job = 60
+indel_recal_disc_size = 20
+snps_recal_disc_size = 20
+snps_gather_disc_size = 10
+
+[images]
+bcftools = "australia-southeast1-docker.pkg.dev/cpg-common/images/bcftools_120:1.20"
+gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.2.6.1"
+vep = "australia-southeast1-docker.pkg.dev/cpg-common/images/vep_110:release_110.1"
+
+[references]
+vep_mount = "gs://cpg-common-main/references/vep/110/mount"
+
+[elasticsearch]
+# Configure access to ElasticSearch server
+port = '9243'
+host = 'elasticsearch.es.australia-southeast1.gcp.elastic-cloud.com'
+username = 'seqr'
+# Load ElasticSearch password from a secret, unless SEQR_ES_PASSWORD is set
+password_secret_id = 'seqr-es-password'
+password_project_id = 'seqr-308602'
+# non-preemptible for ES export
+spot_instance = false
+
+# Template for the alphagenome config file
+[alphagenome_params]
+genes = ["ENSG00000123456", "ENSG00000234567", "ENSG00000345678"]
+# Genes to use for subsetting the matrix table and finding variants of interest for alphagenome
+# This is a list of Ensembl gene IDs, e.g.:
+# ENSG00000139618, ENSG00000157764
+
+# The following parameters are used to filter variants in the matrix table
+#this is the frequency of the allele in the callset as it may be enriched due to selection bias
+callset_af = 0.01
+
+#This is the general population frequency of the allele, e.g. from gnomAD
+#this is used to filter out common variants that are not of interest
+pop_af = 0.01
+
+#Genotyping platforms assign a quality score (e.g., GQ, genotype quality) to each genotype call, indicating the confidence in the call.
+#This is used to filter out low-quality genotype calls, this is strict and can be adjusted based on the dataset quality
+gq_threshold = 35
+
+#These are the consequences to filter variants by and are dependant on previous annotation stages
+consequences = ['3_prime_UTR_variant', '5_prime_UTR_variant', 'splice_region_variant']
+# Consequences to filter variants by, e.g.:
+
