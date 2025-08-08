@@ -153,15 +153,9 @@ api_key=""
 # GENCODE transcript annotation feather path/URL, default to gencode.v46.annotation.gtf.gz.feather
 #use gtf= to change the default
 
+
 # Column names in the matrix table: chromosome, position( 1-based position.), reference bases, alternate bases.
 col_chrom='CHROM'
 col_pos='POS'
 col_ref='REF'
 col_alt='ALT'
-
-
-
-
-
-
-
