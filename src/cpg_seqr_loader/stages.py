@@ -109,7 +109,7 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
         outputs = self.expected_outputs(multicohort)
 
         job = generate_densify_jobs(
-            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds),
+            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
             output_mt=outputs['mt'],
             output_sites_only=outputs['hps_vcf_dir'],
             output_separate_header=outputs['separate_header_vcf_dir'],
