@@ -30,7 +30,7 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 SHARD_MANIFEST = 'shard-manifest.txt'
 
 
-@stage.stage(analysis_type='combiner')
+@stage.stage(analysis_type='combiner', analysis_keys=['vds'])
 class CombineGvcfsIntoVds(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
         return {
@@ -109,7 +109,7 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
         outputs = self.expected_outputs(multicohort)
 
         job = generate_densify_jobs(
-            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds),
+            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
             output_mt=outputs['mt'],
             output_sites_only=outputs['hps_vcf_dir'],
             output_separate_header=outputs['separate_header_vcf_dir'],
