@@ -30,7 +30,7 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 SHARD_MANIFEST = 'shard-manifest.txt'
 
 
-@stage.stage(analysis_type='combiner')
+@stage.stage(analysis_type='combiner', analysis_keys=['vds'])
 class CombineGvcfsIntoVds(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
         return {
