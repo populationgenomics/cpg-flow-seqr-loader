@@ -26,6 +26,7 @@ from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
 from cpg_seqr_loader.jobs.TrainVqsrIndels import train_vqsr_indel_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpModel import train_vqsr_snp_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
+from cpg_seqr_loader.jobs.SubsetDatasetMtByGenes import subset_to_genes_job
 
 SHARD_MANIFEST = 'shard-manifest.txt'
 
@@ -526,6 +527,161 @@ class AnnotateDataset(stage.DatasetStage):
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=output, jobs=job)
+
+
+@stage.stage(required_stages=[AnnotateDataset], analysis_type='custom', analysis_keys=['matrixtable'])
+class SubsetMTtoGenes(stage.DatasetStage):
+    """
+    Take the per dataset annotated matrix table and filter to genes specified in config.toml
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> Path:
+        """
+        Expected to generate a matrix table
+        """
+        if family_sgs := utils.get_family_sequencing_groups(dataset):
+            mt_name = f'{dataset.name}-{family_sgs["name_suffix"]}.mt'
+        else:
+            mt_name = f'{dataset.name}.mt'
+
+        return (
+                dataset.prefix()
+                / workflow.get_workflow().name
+                / workflow.get_workflow().output_version
+                / self.name
+                / mt_name
+        )
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
+        """Run a MT ->subset by genes and return the subsetted matrixtable"""
+
+        # only run this selectively, most datasets it's not required
+        eligible_datasets = config.config_retrieve(['workflow', 'subset_by_genes'])
+        if dataset.name not in eligible_datasets:
+            return None
+
+        gene_list= config.config_retrieve(['genelists', dataset.name])
+
+        output = self.expected_outputs(dataset)
+
+        mt_path = inputs.as_str(target=dataset, stage=AnnotateDataset)
+
+        job = subset_to_genes_job(
+            input_mt=mt_path,
+            output_mt=output,
+            gene_list=gene_list,
+            job_attrs=self.get_job_attrs(dataset),
+        )
+        return self.make_outputs(dataset, data=output, jobs=job)
+
+
+@stage.stage(required_stages=[SubsetMTtoGenes], analysis_type='custom')
+class SubsetMtToVarsOfInterest(stage.DatasetStage):
+    """
+    Take the gene filtered matrix table and filter to 3' and 5' UTRS in config.toml
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> Path:
+        """
+        Expected to generate a tab separated file (tsv)
+        """
+        if family_sgs := utils.get_family_sequencing_groups(dataset):
+            tsv_name = f'{dataset.name}-{family_sgs["name_suffix"]}.tsv'
+        else:
+            tsv_name = f'{dataset.name}.tsv'
+
+        return (
+                dataset.tmp_prefix()
+                / workflow.get_workflow().name
+                / workflow.get_workflow().output_version
+                / self.name
+                / tsv_name
+        )
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
+        """Run a gene filtered MT ->subset by AF, 3' and 5' UTR and splice region variants and return a tsv with vars of interest"""
+
+        # only run this selectively, most datasets it's not required
+        eligible_datasets = config.config_retrieve(['workflow', 'subset_by_genes'])
+        if dataset.name not in eligible_datasets:
+            return None
+
+
+        output = self.expected_outputs(dataset)
+
+        mt_path = inputs.as_str(target=dataset, stage=SubsetMTtoGenes)
+
+        job = find_vars_of_interest_job(
+            input_mt=mt_path,
+            output_tsv=output,
+            job_attrs=self.get_job_attrs(dataset),
+        )
+        return self.make_outputs(dataset, data=output, jobs=job)
+
+
+@stage.stage(required_stages=[SubsetMtToVarsOfInterest], analysis_type='custom')
+class AlphagenomeVarScanner(stage.DatasetStage):
+    """
+    Take the gene filtered matrix table and filter to 3' and 5' UTRS in config.toml
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, str | Path] :
+        """
+        Expected to generate two tables and a folder of png files
+        """
+        if family_sgs := utils.get_family_sequencing_groups(dataset):
+            table_name = f'{dataset.name}-{family_sgs["name_suffix"]}.csv'
+            organ_summary_table_name = f'{dataset.name}-{family_sgs["name_suffix"]}_variant_organ_summary.csv'
+            png_dir_path = f'{dataset.name}-{family_sgs["name_suffix"]}_png_dir'
+        else:
+            table_name = f'{dataset.name}.csv'
+            organ_summary_table_name = f'{dataset.name}_variant_organ_summary.csv'
+            png_dir_path = f'{dataset.name}_png_dir'
+
+        base_path=(
+                dataset.prefix()
+                / workflow.get_workflow().name
+                / workflow.get_workflow().output_version
+                / self.name
+        )
+        return {'table': base_path/table_name ,'table_organ_summary': base_path/organ_summary_table_name  ,'png_dir_path': base_path/png_dir_path}
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
+        """Run a gene filtered MT ->subset by AF, 3' and 5' UTR and splice region variants and return a tsv with vars of interest"""
+
+        # only run this selectively, most datasets it's not required
+        eligible_datasets = config.config_retrieve(['workflow', 'subset_by_genes'])
+        if dataset.name not in eligible_datasets:
+            return None
+
+
+        outputs = self.expected_outputs(dataset)
+
+        tsv_path = inputs.as_str(target=dataset, stage=SubsetMtToVarsOfInterest)
+        organ_ontologies = config.config_retrieve(['organ_ontologies', dataset.name])
+        threshold = config.config_retrieve(['threshold', dataset.name])
+        min_length = config.config_retrieve(['min_length', dataset.name])
+        merge_distance = config.config_retrieve(['merge_distance', dataset.name])
+        window_size = config.config_retrieve(['window_size', dataset.name])
+        scan_span = config.config_retrieve(['scan_span', dataset.name])
+        apikey=config.config_retrieve(['apikey', dataset.name])
+
+        job = alphagenome_var_scanner(
+        input_tsv = tsv_path,
+        output_table = outputs['table'],
+        output_dir = outputs['png_dir_path'],
+        output_summary= outputs['table_organ_summary'],
+        organ_ontologies = organ_ontologies ,
+        threshold = threshold,
+        min_length=min_length  ,
+        merge_distance =merge_distance,
+        window_size = window_size ,
+        scan_span = scan_span ,
+        job_attrs = self.get_job_attrs(dataset),
+        apikey = apikey,
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=job)
+
 
 
 @stage.stage(required_stages=[AnnotateDataset], analysis_type='custom', analysis_keys=['vcf'])
