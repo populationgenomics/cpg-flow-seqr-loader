@@ -77,7 +77,8 @@ def create_combiner_jobs(
             with sg_remove_file.open('w') as write_handle:
                 for sgid in sgs_to_remove:
                     write_handle.write(f'{sgid!s}\n')
-            sg_remove_arg = f'--sg_remove_file {sg_remove_file!s}'
+            localised_sg_remove_file = hail_batch.get_batch().read_input(sg_remove_file)
+            sg_remove_arg = f'--sg_remove_file {localised_sg_remove_file!s}'
 
     if not (new_sg_gvcfs or sgs_to_remove):
         loguru.logger.info('No GVCFs to add to, or remove from, existing VDS')
