@@ -46,7 +46,7 @@ def saving_figure(path_logdir, fig):
 
 
 # defaults are brain, kidney, and nervous system, in that order
-organs = config.config_retrieve(
+organ = config.config_retrieve(
     ['alphagenome_parm', 'organs'],
     default=[
         'UBERON:0000992',
@@ -70,11 +70,6 @@ gtf = config.config_retrieve(
     ['alphagenome_parm', 'gtf'],
     default='gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather',
 )
-col_chrom = config.config_retrieve(['alphagenome_parm', 'col_chrom'], default='CHROM')
-col_pos = config.config_retrieve(['alphagenome_parm', 'col_pos'], default='POS')
-col_ref = config.config_retrieve(['alphagenome_parm', 'col_ref'], default='REF')
-col_alt = config.config_retrieve(['alphagenome_parm', 'col_alt'], default='ALT')
-
 
 # precommit check
 
@@ -103,55 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # ------------------------------------------------------------------
 # I/O
-# ------------------------------------------------------------------
-
-
-def load_variants_table(path: str, col_chrom: str, col_pos: str, col_ref: str, col_alt: str) -> pd.DataFrame:
-    fp = Path(path)
-    if not fp.exists():
-        raise FileNotFoundError(path)
-    suf = fp.suffix.lower()
-    if suf in {'.tsv', '.txt'}:
-        df = pd.read_csv(fp, sep='\t')
-    elif suf == '.csv':
-        df = pd.read_csv(fp)
-    elif suf == '.vcf':
-        df = _load_vcf(fp)
-    else:
-        # fallback: try tab then comma
-        try:
-            df = pd.read_csv(fp, sep='\t')
-        except Exception:
-            df = pd.read_csv(fp)
-    mapping = {col_chrom: 'CHROM', col_pos: 'POS', col_ref: 'REF', col_alt: 'ALT'}
-    miss = [c for c in mapping if c not in df.columns]
-    if miss:
-        raise ValueError(f'Missing required columns: {miss}')
-    df = df.rename(columns=mapping)[['CHROM', 'POS', 'REF', 'ALT']]
-    return df
-
-
-def _load_vcf(fp: Path) -> pd.DataFrame:
-    chrom = []
-    pos = []
-    ref = []
-    alt = []
-    with fp.open() as fh:
-        for ln in fh:
-            if ln.startswith('#'):
-                continue
-            f = ln.rstrip('\n').split('\t')
-            chrom.append(f[0])
-            pos.append(int(f[1]))
-            ref.append(f[3])
-            alt.append(f[4].split(',')[0])  # first ALT only
-    return pd.DataFrame({'CHROM': chrom, 'POS': pos, 'REF': ref, 'ALT': alt})
-
-
-def ensure_output_dir(path: str) -> Path:
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+# --------------------------------------------
 
 
 # ------------------------------------------------------------------
@@ -232,13 +179,26 @@ def compute_window_scores(
     a /= float(window_size)
     r /= float(window_size)
     return (a / (r + epsilon)) - 1.0
-    # Suggestions for alternative implementations that may be more representative of splicing events:
-    # scores = np.empty((n_windows, n_tracks))
-    # for i in range(n_windows):
-    #    win_alt = alt_vals[start_idx + i:start_idx + i + window_size, :]
-    #    win_ref = ref_vals[start_idx + i:start_idx + i + window_size, :]
-    #    scores[i, :] = np.max(np.abs(win_alt - win_ref), axis=0)
-    # return scores
+
+def compute_window_scores_alternative(
+    #Suggestions for alternative implementations that may be more representative of splicing events:
+    alt_vals: np.ndarray, ref_vals: np.ndarray, start_idx: int, end_idx: int, window_size: int, epsilon: float
+) -> np.ndarray:
+    """Return (n_windows, n_tracks) of ALT/REF−1 window means."""
+    n_bases, n_tracks = alt_vals.shape
+    start_idx = max(start_idx, 0)
+    end_idx = min(end_idx, n_bases)
+    n_windows = end_idx - start_idx - window_size + 1
+    if n_windows <= 0:
+        return np.empty((0, n_tracks))
+    scores = np.empty((n_windows, n_tracks))
+    for i in range(n_windows):
+        win_alt = alt_vals[start_idx + i : start_idx + i + window_size, :]
+        win_ref = ref_vals[start_idx + i : start_idx + i + window_size, :]
+        max_abs_diff = np.max(np.abs(win_alt - win_ref), axis=0)
+        mean_ref = np.mean(win_ref, axis=0)
+        scores[i, :] = max_abs_diff / (mean_ref + epsilon)
+    return scores
 
 
 def call_regions(scores: np.ndarray, threshold: float, min_length: int, merge_distance: int) -> list[tuple[int, int]]:
@@ -438,11 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     # load inputs
-    variants_df = load_variants_table(args.variants, col_chrom, col_pos, col_ref, col_alt)
+    variants_df =pd.read_csv(args.variants, sep='\t')
     transcript_extractor = load_transcript_extractor(gtf)
     dna_model = get_dna_model(api_key)
 
-    organs = organs or [
+    organs = organ or [
         'UBERON:0000992',
         'UBERON:0002371',
         'UBERON:0000948',
@@ -497,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
             end_idx = center_idx + scan_span  # exclusive after adjust in compute
 
             # compute window scores (vectorized)
-            win_scores = compute_window_scores(alt_vals, ref_vals, start_idx, end_idx, window_size, epsilon)
+            win_scores = compute_window_scores_alternative(alt_vals, ref_vals, start_idx, end_idx, window_size, epsilon)
             if win_scores.size == 0:
                 warnings.warn(f'Scan span/window too large/small near edges for {variant}.')
                 continue
