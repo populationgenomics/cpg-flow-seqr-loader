@@ -22,7 +22,7 @@ classifiers=[
 
 dependencies=[
     'cpg-flow',
-    'elasticsearch',
+    'elasticsearch==8.*',
     'hatchling',
     'loguru',
 ]
