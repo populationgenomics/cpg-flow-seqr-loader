@@ -35,8 +35,6 @@ from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
 
 # In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
-
-
 def saving_figure(path_logdir, fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
@@ -47,7 +45,7 @@ def saving_figure(path_logdir, fig):
 
 # defaults are brain, kidney, and nervous system, in that order
 organ = config.config_retrieve(
-    ['alphagenome_parm', 'organs'],
+    ['alphagenome_params', 'organs'],
     default=[
         'UBERON:0000992',
         'UBERON:0002371',
@@ -57,19 +55,20 @@ organ = config.config_retrieve(
         'UBERON:0001264',
     ],
 )
-threshold = config.config_retrieve(['alphagenome_parm', 'threshold'], default=0.5)
-min_length = config.config_retrieve(['alphagenome_parm', 'min_length'], default=1000)
-merge_distance = config.config_retrieve(['alphagenome_parm', 'merge_distance'], default=300)
-window_size = config.config_retrieve(['alphagenome_parm', 'window_size'], default=100)
-scan_span = config.config_retrieve(['alphagenome_parm', 'scan_span'], default=50000)
-plot_non_sig = config.config_retrieve(['alphagenome_parm', 'plot_non_sig'], default=False)
-scan_all_tracks = config.config_retrieve(['alphagenome_parm', 'scan_all_tracks'], default=True)
-epsilon = config.config_retrieve(['alphagenome_parm', 'epsilon'], default=1e-8)
-api_key = config.config_retrieve(['alphagenome_parm', 'api_key'], default=None)
+threshold = config.config_retrieve(['alphagenome_params', 'threshold'], default=0.5)
+min_length = config.config_retrieve(['alphagenome_params', 'min_length'], default=1000)
+merge_distance = config.config_retrieve(['alphagenome_params', 'merge_distance'], default=300)
+window_size = config.config_retrieve(['alphagenome_params', 'window_size'], default=100)
+scan_span = config.config_retrieve(['alphagenome_params', 'scan_span'], default=50000)
+plot_non_sig = config.config_retrieve(['alphagenome_params', 'plot_non_sig'], default=False)
+scan_all_tracks = config.config_retrieve(['alphagenome_params', 'scan_all_tracks'], default=True)
+epsilon = config.config_retrieve(['alphagenome_params', 'epsilon'], default=1e-8)
+api_key = config.config_retrieve(['alphagenome_params', 'api_key'], default=None)
 gtf = config.config_retrieve(
-    ['alphagenome_parm', 'gtf'],
+    ['alphagenome_params', 'gtf'],
     default='gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather',
 )
+
 
 # precommit check
 
@@ -396,9 +395,17 @@ def write_table(df: pd.DataFrame, path: str):
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    gcs_path = args.variants
+    if gcs_path.startswith("b/"):
+        # convert from b/.../o/... to gs://bucket/object
+        parts = gcs_path.split("/")
+        bucket = parts[1]
+        obj = "/".join(parts[3:])
+        gcs_path = f"gs://{bucket}/{obj}"
+    fs = gcsfs.GCSFileSystem()
+    with fs.open(gcs_path, "rb") as f:
+        variants_df = pd.read_csv(f, sep="\t")
 
-    # load inputs
-    variants_df =pd.read_csv(args.variants, sep='\t')
     transcript_extractor = load_transcript_extractor(gtf)
     dna_model = get_dna_model(api_key)
 
