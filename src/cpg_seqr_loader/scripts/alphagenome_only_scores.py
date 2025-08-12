@@ -146,13 +146,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # @markdown Specify which scorers to use to score your variants:
     score_rna_seq = True  # @param { type: "boolean"}
-    score_cage = True  # @param { type: "boolean" }
-    score_procap = True  # @param { type: "boolean" }
-    score_atac = True  # @param { type: "boolean" }
-    score_dnase = True  # @param { type: "boolean" }
-    score_chip_histone = True  # @param { type: "boolean" }
-    score_chip_tf = True  # @param { type: "boolean" }
-    score_polyadenylation = True  # @param { type: "boolean" }
+    score_cage = False  # @param { type: "boolean" }
+    score_procap = False  # @param { type: "boolean" }
+    score_atac = False  # @param { type: "boolean" }
+    score_dnase = False  # @param { type: "boolean" }
+    score_chip_histone = False  # @param { type: "boolean" }
+    score_chip_tf = False  # @param { type: "boolean" }
+    score_polyadenylation = False  # @param { type: "boolean" }
     score_splice_sites = True  # @param { type: "boolean" }
     score_splice_site_usage = True  # @param { type: "boolean" }
     score_splice_junctions = True  # @param { type: "boolean" }
