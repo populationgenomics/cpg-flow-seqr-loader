@@ -122,7 +122,6 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         # use the buffered graph plotter
         save_figure(f'{var!s}.png', plot)
-        break
 
     if significant_results is None:
         print('No significant results found.')
