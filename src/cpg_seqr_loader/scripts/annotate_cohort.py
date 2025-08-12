@@ -258,9 +258,9 @@ def annotate_cohort(
             AN=mt.variant_qc.AN,
         ),
         # taking a single value here for downstream compatibility in Seqr
-        AC=mt.info.AC[1],
-        AF=mt.info.AF[1],
-        AN=mt.info.AN,
+        AC=mt.variant_qc.AC[1],
+        AF=mt.variant_qc.AF[1],
+        AN=mt.variant_qc.AN,
     )
     mt = mt.drop('variant_qc')
 
