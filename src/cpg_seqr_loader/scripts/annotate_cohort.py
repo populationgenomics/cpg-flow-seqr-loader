@@ -244,7 +244,7 @@ def annotate_cohort(
     mt = annotate_ourdna(mt)
 
     # # annotate all the gnomAD v4 fields in a separate function
-    # mt = annotate_gnomad4(mt)
+    mt = annotate_gnomad4(mt)
 
     mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_plus_ext_tables.mt'), overwrite=True)
 
