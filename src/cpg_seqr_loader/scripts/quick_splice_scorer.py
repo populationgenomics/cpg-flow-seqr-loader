@@ -35,7 +35,7 @@ def load_variants_table(path: str):
         list[genome.Variant]: List of genome.Variant objects.
     """
     variants = []
-    with open(path) as tsv_reader:
+    with to_anypath(path).open() as tsv_reader:
         reader = DictReader(tsv_reader, delimiter='\t')
 
         for row in reader:
