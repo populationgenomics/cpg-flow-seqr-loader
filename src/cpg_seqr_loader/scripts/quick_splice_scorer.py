@@ -123,14 +123,19 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         # use the buffered graph plotter
         save_figure(f'{var!s}.png', plot)
+        break
 
     if significant_results is None:
         print('No significant results found.')
         return
 
-    # Write the significant results to a TSV file
-    output_file = f'{output_root}.tsv'
-    significant_results.to_string(output_file)
+    # Write the significant results to a TSV file via a StringIO buffer
+    buffer = io.StringIO()
+    significant_results.to_string(buffer)
+    buffer.seek(0)
+    with to_anypath(f'{output_root}.tsv').open('w') as handle:
+        handle.write(buffer.read())
+    buffer.close()
 
 
 if __name__ == '__main__':
