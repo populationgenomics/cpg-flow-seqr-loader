@@ -9,8 +9,6 @@ from tqdm import tqdm
 import gcsfs as gcsfs
 from cloudpathlib.anypath import to_anypath
 
-from google.colab import data_table, files
-
 from cpg_utils import config
 
 from alphagenome import colab_utils
@@ -45,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     P.add_argument('--variants', required=True, help='TSV/CSV/VCF of variants.')
     P.add_argument(
         '--output-table',
-        default='gs://cpg-kidgen-test/alphagenome_scan_results.csv',
+            default='gs://cpg-kidgen-test/alphagenome_scan_results.csv',
         help='Output summary table path (csv/tsv/xlsx).',
     )
     P.add_argument(
