@@ -34,14 +34,6 @@ from alphagenome.visualization import plot_components
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
 
-# In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
-def saving_figure(path_logdir, fig):
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    with to_anypath(path_logdir).open('wb') as handle:
-        handle.write(buf.read())
-
 
 # defaults are brain, kidney, and nervous system, in that order
 organ = config.config_retrieve(
@@ -112,6 +104,16 @@ def load_transcript_extractor(gtf_path: str):
         gtf_t = gene_annotation.filter_protein_coding(gtf)
         gtf_t = gene_annotation.filter_to_longest_transcript(gtf_t)
         return transcript_utils.TranscriptExtractor(gtf_t)
+
+# In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
+def saving_figure(path_logdir, fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    with to_anypath(path_logdir).open('wb') as handle:
+        handle.write(buf.read())
+    buf.close()
+    plt.close()
 
 
 def get_dna_model(api_key: str | None = None):
@@ -397,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     gcs_path = args.variants
     if gcs_path.startswith("b/"):
+        print('Detected GCS path starting with "b/". Converting to gs:// format.')
         # convert from b/.../o/... to gs://bucket/object
         parts = gcs_path.split("/")
         bucket = parts[1]
@@ -418,9 +421,24 @@ def main(argv: list[str] | None = None) -> int:
         'UBERON:0001264',
     ]
     out_dir = to_anypath(args.output_dir)
-
+    print(
+        f"Input variants path: {args.variants} | "
+        f"Output table path: {args.output_table} | "
+        f"Output summary table path: {args.output_table_sum} | "
+        f"Output directory for plots: {args.output_dir} | "
+        f"Organs: {organ} | "
+        f"Threshold: {threshold} | "
+        f"Minimum region length: {min_length} | "
+        f"Merge distance: {merge_distance} | "
+        f"Window size: {window_size} | "
+        f"Scan span: {scan_span} | "
+        f"Plot non-significant: {plot_non_sig} | "
+        f"Scan all tracks: {scan_all_tracks} | "
+        f"Epsilon: {epsilon} | "
+        f"API key: Get yer own | "
+        f"GTF path: {gtf}"
+    )
     results_rows = []
-
     for ontology in organs:
         number_rank = 0
         for _, row in variants_df.iterrows():
@@ -572,6 +590,7 @@ def main(argv: list[str] | None = None) -> int:
             if sig_any or plot_non_sig:
                 plot_path = out_dir / (f'{ontology}_{number_rank}_{variant.chromosome}_{variant.position}.png')
                 plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
+                break
                 # back-fill plot_file for recent rows
                 for r in results_rows[-n_tracks:]:
                     if r['chrom'] == variant.chromosome and r['pos'] == variant.position and r['ontology'] == ontology:
