@@ -93,7 +93,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             continue
 
         # either extend the significant results DataFrame or initialize it
-        if not significant_results:
+        if significant_results is None:
             significant_results = filtered_scores
         else:
             significant_results = pd.concat([significant_results, filtered_scores])
