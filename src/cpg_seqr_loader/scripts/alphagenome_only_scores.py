@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     results = []
     for ontology in organs:
         number_rank = 0
-        for i, vcf_row in tqdm(variants_df.iterrows(), total=len(variants_df)):
+        for i, vcf_row in enumerate(tqdm(variants_df.itertuples(index=False), total=len(variants_df))):
             number_rank += 1
             variant = genome.Variant(
                 chromosome=str(vcf_row.CHROM),
