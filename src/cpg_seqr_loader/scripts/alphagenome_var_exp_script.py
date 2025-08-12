@@ -108,7 +108,8 @@ def load_transcript_extractor(gtf_path: str):
 # In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
 def saving_figure(path_logdir, fig):
     buf = io.BytesIO()
-    fig.savefig(buf, format='png')
+    fig.set_size_inches(12, 8)
+    fig.savefig(buf, format='png',dpi=300)
     buf.seek(0)
     with to_anypath(path_logdir).open('wb') as handle:
         handle.write(buf.read())
@@ -589,8 +590,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if sig_any or plot_non_sig:
                 plot_path = out_dir / (f'{ontology}_{number_rank}_{variant.chromosome}_{variant.position}.png')
-                plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
-                break
+                #plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
                 # back-fill plot_file for recent rows
                 for r in results_rows[-n_tracks:]:
                     if r['chrom'] == variant.chromosome and r['pos'] == variant.position and r['ontology'] == ontology:
