@@ -111,6 +111,24 @@ def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
     return vqsr_ht.checkpoint(str(ht_path), overwrite=True)
 
 
+def annotate_ourdna(mt: hl.MatrixTable) -> hl.MatrixTable:
+    """Annotate the MatrixTable with OurDNA data (exomes & genomes)."""
+    if not (
+        (ourdna_exome_ht_path := config.config_retrieve(['references', 'ourdna_exome_ht']))
+        and (ourdna_genome_ht_path := config.config_retrieve(['references', 'ourdna_genome_ht']))
+    ):
+        loguru.logger.info(f'One or both of the OurDNA HTs are not configured, skipping annotation')
+        return mt
+
+    ourdna_exomes = hl.read_table(ourdna_exome_ht_path)
+    ourdna_genomes = hl.read_table(ourdna_genome_ht_path)
+
+    mt = mt.annotate_rows(
+        ourdna_genomes=ourdna_genomes[mt.row_key],
+        ourdna_exomes=ourdna_exomes[mt.row_key],
+    )
+
+
 def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
     """
     All steps relating to the annotation of gnomAD v4(.1) data
@@ -144,6 +162,38 @@ def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
     )
 
 
+def annotate_with_external_sources(
+    mt: hl.MatrixTable,
+    vep_ht_path: str,
+) -> hl.MatrixTable:
+    """
+    Annotate MatrixTable with external Tables
+    """
+
+    ref_ht_path = config.config_retrieve(['references', 'seqr_combined_reference_data'])
+    clinvar_ht_path = config.config_retrieve(['references', 'seqr_clinvar'])
+
+    loguru.logger.info(
+        f"""
+        Annotating Variant Matrix Table with additional datasets:
+        \tVEP annotations from {vep_ht_path}
+        \tReference data from {ref_ht_path}
+        \tClinVar data from {clinvar_ht_path}
+        """,
+    )
+
+    clinvar_ht = hl.read_table(clinvar_ht_path)
+    ref_ht = hl.read_table(ref_ht_path)
+    vep_ht = hl.read_table(vep_ht_path)
+
+    # join all annotation sources into the MatrixTable
+    return mt.annotate_rows(
+        clinvar_data=clinvar_ht[mt.row_key],
+        ref_data=ref_ht[mt.row_key],
+        vep=vep_ht[mt.row_key].vep,
+    )
+
+
 def annotate_cohort(
     mt_path: str,
     out_mt_path: str,
@@ -151,19 +201,7 @@ def annotate_cohort(
     checkpoint_prefix: str,
     vqsr_vcf_path: str | None = None,
 ) -> None:
-    """
-    Convert VCF to matrix table, annotate for Seqr Loader, add VEP and VQSR annotations.
-
-    Args:
-        mt_path ():
-        out_mt_path ():
-        vep_ht_path ():
-        checkpoint_prefix ():
-        vqsr_vcf_path ():
-
-    Returns:
-        Nothing, but hopefully writes out a new MT
-    """
+    """Convert VCF to matrix table, annotate for Seqr Loader, add VEP, OurDNA, and VQSR annotations."""
 
     hail_batch.init_batch(
         worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
@@ -174,13 +212,19 @@ def annotate_cohort(
     mt = hl.read_matrix_table(mt_path)
     loguru.logger.info(f'Imported MT from {mt_path} as {mt.n_partitions()} partitions')
 
-    # Annotate VEP. Do it before splitting multi, because we run VEP on unsplit VCF,
-    # and hl.split_multi_hts can handle multiallelic VEP field.
-    vep_ht = hl.read_table(vep_ht_path)
-    loguru.logger.info(f'Adding VEP annotations into the Matrix Table from {vep_ht_path}')
-    loguru.logger.info(f'VEP loaded as {vep_ht.n_partitions()} partitions')
-
-    mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_vep.mt'), overwrite=True)
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    # Map sequencing type to Seqr-style string in global variables
+    # https://github.com/broadinstitute/seqr/blob/e0c179c36c0f68c892017de5eab2e4c1b9ffdc92/seqr/models.py#L592-L594
+    mt = mt.annotate_globals(
+        sourceFilePath=mt_path,
+        genomeVersion=hail_batch.genome_build().replace('GRCh', ''),
+        hail_version=hl.version(),
+        sampleType={
+            'genome': 'WGS',
+            'exome': 'WES',
+            'single_cell': 'RNA',
+        }.get(sequencing_type, ''),
+    )
 
     if vqsr_vcf_path:
         loguru.logger.info('Adding VQSR annotations into the Matrix Table')
@@ -193,35 +237,33 @@ def annotate_cohort(
         )
         mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_vep_vqsr.mt'), overwrite=True)
 
-    ref_ht = hl.read_table(config.reference_path('seqr_combined_reference_data'))
-    clinvar_ht = hl.read_table(config.reference_path('seqr_clinvar'))
+    # join all annotation sources into the MatrixTable
+    mt = annotate_with_external_sources(mt, vep_ht_path)
+    mt = annotate_ourdna(mt)
 
+    # # annotate all the gnomAD v4 fields in a separate function
+    # mt = annotate_gnomad4(mt)
+
+    mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_plus_ext_tables.mt'), overwrite=True)
+
+    # update AF attributes from observed callset frequencies
     mt = hl.variant_qc(mt)
     mt = mt.annotate_rows(
+        # annotate the info struct with the variant QC data - Hail's variant_qc includes the REF allele, so skip it
         info=mt.info.annotate(
-            AF=mt.variant_qc.AF,
+            AC=[mt.variant_qc.AC[1]],
+            AF=[mt.variant_qc.AF[1]],
             AN=mt.variant_qc.AN,
-            AC=mt.variant_qc.AC,
         ),
-        vep=vep_ht[mt.row_key].vep,
+        # taking a single value here for downstream compatibility in Seqr
+        AC=mt.info.AC[1],
+        AF=mt.info.AF[1],
+        AN=mt.info.AN,
     )
     mt = mt.drop('variant_qc')
 
-    # split the AC/AF attributes into separate entries, overwriting the array in INFO
-    # these elements become a 1-element array for [ALT] instead [REF, ALT]
+    loguru.logger.info('Reformatting annotated fields')
     mt = mt.annotate_rows(
-        info=mt.info.annotate(
-            AF=[mt.info.AF[1]],
-            AC=[mt.info.AC[1]],
-        ),
-    )
-
-    loguru.logger.info('Annotating with clinvar and munging annotation fields')
-    mt = mt.annotate_rows(
-        # still taking just a single value here for downstream compatibility in Seqr
-        AC=mt.info.AC[0],
-        AF=mt.info.AF[0],
-        AN=mt.info.AN,
         aIndex=mt.a_index,
         wasSplit=mt.was_split,
         sortedTranscriptConsequences=vep.get_expr_for_vep_sorted_transcript_consequences_array(mt.vep),
@@ -235,12 +277,7 @@ def annotate_cohort(
         xpos=variant_id.get_expr_for_xpos(mt.locus),
         xstart=variant_id.get_expr_for_xpos(mt.locus),
         xstop=variant_id.get_expr_for_xpos(mt.locus) + hl.len(mt.alleles[0]) - 1,
-        clinvar_data=clinvar_ht[mt.row_key],
-        ref_data=ref_ht[mt.row_key],
     )
-
-    # annotate all the gnomAD v4 fields in a separate function
-    mt = annotate_gnomad4(mt)
 
     # this was previously executed in the MtToEs job, as it wasn't possible on QoB
     loguru.logger.info('Adding GRCh37 coords')
@@ -285,21 +322,6 @@ def annotate_cohort(
             gold_stars=mt.clinvar_data.gold_stars,
         ),
     )
-    mt = mt.annotate_globals(
-        sourceFilePath=mt_path,
-        genomeVersion=hail_batch.genome_build().replace('GRCh', ''),
-        hail_version=hl.version(),
-    )
-    if sequencing_type := config.config_retrieve(['workflow', 'sequencing_type']):
-        # Map to Seqr-style string
-        # https://github.com/broadinstitute/seqr/blob/e0c179c36c0f68c892017de5eab2e4c1b9ffdc92/seqr/models.py#L592-L594
-        mt = mt.annotate_globals(
-            sampleType={
-                'genome': 'WGS',
-                'exome': 'WES',
-                'single_cell': 'RNA',
-            }.get(sequencing_type, ''),
-        )
 
     loguru.logger.info('Final Structure:')
     mt.write(out_mt_path, overwrite=True)
