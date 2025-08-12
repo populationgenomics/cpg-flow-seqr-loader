@@ -1,16 +1,15 @@
 import io
-from csv import DictReader
 from argparse import ArgumentParser
+from csv import DictReader
 
+import matplotlib.pyplot as plt
 import pandas as pd
+from cloudpathlib.anypath import to_anypath
+from cpg_utils import config
+
 from alphagenome.data import genome
 from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
-from cloudpathlib.anypath import to_anypath
-import matplotlib.pyplot as plt
-
-from cpg_utils import config
-
 
 ARBITRARY_THRESHOLD = config.config_retrieve(['alphagenome_params', 'sig_threshold'], default=0.98)
 
