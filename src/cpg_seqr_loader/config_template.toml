@@ -65,6 +65,10 @@ vep = "australia-southeast1-docker.pkg.dev/cpg-common/images/vep_110:release_110
 [references]
 vep_mount = "gs://cpg-common-main/references/vep/110/mount"
 
+[ourdna]
+exome = "gs://cpg-common-main/TEMP_ourdna_frequencies/1.3/exome/frequencies.ht"
+genome = "gs://cpg-common-main/TEMP_ourdna_frequencies/1.4/genome/frequencies.ht"
+
 [elasticsearch]
 # Configure access to ElasticSearch server
 port = '9243'

@@ -114,18 +114,20 @@ def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
 def annotate_ourdna(mt: hl.MatrixTable) -> hl.MatrixTable:
     """Annotate the MatrixTable with OurDNA data (exomes & genomes)."""
     if not (
-        (ourdna_exome_ht_path := config.config_retrieve(['references', 'ourdna_exome_ht']))
-        and (ourdna_genome_ht_path := config.config_retrieve(['references', 'ourdna_genome_ht']))
+        (ourdna_exome_ht_path := config.config_retrieve(['ourdna', 'exome'], None))
+        and (ourdna_genome_ht_path := config.config_retrieve(['ourdna', 'genome'], None))
     ):
-        loguru.logger.info(f'One or both of the OurDNA HTs are not configured, skipping annotation')
+        loguru.logger.info('One or both of the OurDNA HTs are not configured, skipping annotation')
         return mt
 
     ourdna_exomes = hl.read_table(ourdna_exome_ht_path)
     ourdna_genomes = hl.read_table(ourdna_genome_ht_path)
 
-    mt = mt.annotate_rows(
-        ourdna_genomes=ourdna_genomes[mt.row_key],
-        ourdna_exomes=ourdna_exomes[mt.row_key],
+    # the ht.freq block contains a list of Structs, each AC/AF/AN/homozygote_count
+    # within this list of structs, the first element is the 'adj' adjusted (qc pass) population, which is what we want
+    return mt.annotate_rows(
+        ourdna_genomes=ourdna_genomes[mt.row_key].freq[0],
+        ourdna_exomes=ourdna_exomes[mt.row_key].freq[0],
     )
 
 
