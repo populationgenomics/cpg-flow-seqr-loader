@@ -65,7 +65,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     # as generated from the filter_mt_to_vars_of_interest.py script
     variants = load_variants_table(input_variants)
 
-    significant_results: pd.DataFrame = None
+    significant_results: pd.DataFrame | None = None
 
     model = dna_client.create(api_key)
 
@@ -123,6 +123,10 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         # use the buffered graph plotter
         save_figure(f'{var!s}.png', plot)
+
+    if significant_results is None:
+        print('No significant results found.')
+        return
 
     # Write the significant results to a TSV file
     output_file = f'{output_root}.tsv'
