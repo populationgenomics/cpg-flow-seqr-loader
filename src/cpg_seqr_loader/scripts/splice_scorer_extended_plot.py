@@ -284,7 +284,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             align_reference_for_indel(var, interval, variant_prediction, length_alter)
             ref_vals = variant_prediction.reference.splice_sites.values  # updated
 
-        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,plot_size=2**15, f'{var!s}.png')
+        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,2**15, f'{var!s}.png')
 
 
     if significant_results is None:
