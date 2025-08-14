@@ -54,19 +54,6 @@ include_package_data = true
 [options.package_data]
 'cpg_seqr_loader'=  ['config_template.toml']
 
-[tool.black]
-line-length = 120
-skip-string-normalization = true
-exclude = '''
-/(
-  venv
-  | \.mypy_cache
-  | \.venv
-  | build
-  | dist
-)/
-'''
-
 [tool.mypy]
 ignore_missing_imports = true
 
@@ -112,7 +99,6 @@ section-order = ["future", "standard-library", "third-party", "hail", "cpg", "fi
 [tool.ruff.lint.isort.sections]
 cpg = ["cpg_seqr_loader", "talos", "cpg-flow", "cpg-utils"]
 hail = ["hail"]
-
 
 [tool.ruff.lint.per-file-ignores]
 # suppress the ARG002 "Unused method argument" warning in the stages.py file
