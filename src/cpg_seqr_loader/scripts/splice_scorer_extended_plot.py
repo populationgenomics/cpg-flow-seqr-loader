@@ -271,20 +271,17 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         # track count
         alt_vals = variant_prediction.alternate.splice_sites.values
-        ref_vals = variant_prediction.reference.splice_sites.values
         n_tracks = alt_vals.shape[1]
         if n_tracks == 0:
             warnings.warn(f'No tracks available for {ontology}; skipping variant {var}.')
             continue
 
         # indel alignment
-        length_alter = len(var.reference_bases) - len(var.alternate_bases)
+        length_alter = len(variant_prediction.reference_bases) - len(variant_prediction.alternate_bases)
         if length_alter != 0:
             align_reference_for_indel(var, interval, variant_prediction, length_alter)
-            ref_vals = variant_prediction.reference.splice_sites.values  # updated
 
-        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,2**15,f'{var!s}.png')
-
+        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,2**15,f'{output_root!s}/{var!s}.png')
 
     if significant_results is None:
         print('No significant results found.')
