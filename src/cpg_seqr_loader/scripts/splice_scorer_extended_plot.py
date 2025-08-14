@@ -1,13 +1,17 @@
 import io
 from argparse import ArgumentParser
 from csv import DictReader
+import warnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+import gcsfs as gcsfs
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
 
 from alphagenome.data import genome,gene_annotation
+from alphagenome.data import transcript as transcript_utils
 from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
 
@@ -84,17 +88,12 @@ def load_transcript_extractor(gtf_path: str):
         return transcript_utils.TranscriptExtractor(gtf_t)
 
 
-def plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size: int, outpath: Path):
+def plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size: int, outpath: str):
     transcripts = transcript_extractor.extract(interval)
     ref_output = vout.reference
     alt_output = vout.alternate
     ref_alt_colors = {'REF': 'dimgrey', 'ALT': 'red'}
     plot_elements = []
-    variant_scorer = variant_scorers.RECOMMENDED_VARIANT_SCORERS['RNA_SEQ']
-
-    variant_scores = dna_model.score_variant(
-        interval=interval, variant=variant, variant_scorers=[variant_scorer]
-    )
     # Transcript annotation
     if transcripts:
         plot_elements.append(plot_components.TranscriptAnnotation(transcripts))
@@ -284,7 +283,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             align_reference_for_indel(var, interval, variant_prediction, length_alter)
             ref_vals = variant_prediction.reference.splice_sites.values  # updated
 
-        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,2**15, f'{var!s}.png')
+        plot_variant_tracks(var,interval,variant_prediction,transcript_extractor,2**15,f'{var!s}.png')
 
 
     if significant_results is None:
