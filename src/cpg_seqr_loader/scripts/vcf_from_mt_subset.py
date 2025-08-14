@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 
 from loguru import logger
+from cpg_utils import config, hail_batch
 
 import hail as hl
 
@@ -15,6 +16,12 @@ def vcf_from_mt_subset(input_mt: str, output: str):
         input_mt (str): path of the single-dataset MT to read in
         output (str): path of the vcf.bgz to generate
     """
+
+    hail_batch.init_batch(
+        worker_memory=config.config_retrieve(['vcf_from_mt', 'worker_memory']),
+        driver_memory=config.config_retrieve(['vcf_from_mt', 'driver_memory']),
+        driver_cores=config.config_retrieve(['vcf_from_mt', 'driver_cores']),
+    )
 
     mt = hl.read_matrix_table(input_mt)
     logger.info(f'Dataset MT dimensions: {mt.count()}')
