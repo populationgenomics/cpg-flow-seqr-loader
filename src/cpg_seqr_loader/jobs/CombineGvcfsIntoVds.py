@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import loguru
 from cpg_flow import targets
 from cpg_flow import utils as cpg_flow_utils
-from cpg_utils import Path, config, hail_batch
+from cpg_utils import Path, config, hail_batch, to_path
 
 from cpg_seqr_loader import utils
 
@@ -15,12 +15,14 @@ def create_combiner_jobs(
     multicohort: targets.MultiCohort,
     output_vds: Path,
     combiner_plan: Path,
-    temp_dir: Path,
+    temp_dir_string: str,
     job_attrs: dict[str, str],
 ) -> 'BashJob | None':
     vds_path: str | None = None
     sg_ids_in_vds: set[str] = set()
     sgs_to_remove: list[str] = []
+
+    temp_dir = to_path(temp_dir_string)
 
     # check for a VDS by ID - this is not the typical RD process
     if vds_id := config.config_retrieve(['workflow', 'use_specific_vds'], None):
