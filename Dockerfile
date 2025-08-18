@@ -12,3 +12,4 @@ RUN pip install --no-cache-dir .
 RUN pip install alphagenome
 RUN pip install gcsfs
 RUN pip install matplotlib
+RUN pip install reportlab
