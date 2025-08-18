@@ -33,45 +33,58 @@ SCORER_CHOICES = [
     'SPLICE_SITES',
     'SPLICE_SITE_USAGE',
 ]
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
 
-def pngs_to_pdf_anypath_matplotlib(directory,summary_text):
+
+def pngs_to_pdf_streaming(directory, summary_text):
     """
-    #This function saves all individual PNG files in a directory to a single PDF file using matplotlib.
-    Args:
-        directory (str): Path to the directory containing variant pngs.
-        summary_text (str): Text indicating the top five significant variants positions
-        and their number of significant variants in that position.
-    Returns:
-        combined pdf file with all images placed in that same directory.
+    Save PNG files from cloud storage directly to a PDF in streaming mode.
+    Images are loaded one at a time, written immediately to PDF page by page.
     """
     dir_path = to_anypath(directory)
     png_files = sorted([f for f in dir_path.iterdir() if f.suffix.lower() == '.png'])
     if not png_files:
-        print('No PNG files found.')
+        print("No PNG files found.")
         return
 
-    with PdfPages(to_anypath(f'{dir_path!s}/all_significant_vars.pdf').open('wb')) as pdf:
-        # Page 1: Summary giving the number of significant variants and a list of the top five positions with significant variants
-        fig, ax = plt.subplots(figsize=(8.5, 11))
-        ax.text(0.5, 0.5,summary_text,
-                ha='center', va='center', fontsize=16, wrap=True)
-        ax.axis('off')
-        pdf.savefig(fig, dpi=600, bbox_inches='tight')
-        plt.close(fig)
+    pdf_path = to_anypath(f"{dir_path!s}/all_significant_vars.pdf")
 
-        # Remaining pages: images with headings
+    # Open PDF for writing in cloud storage
+    with pdf_path.open('wb') as out_file:
+        c = canvas.Canvas(out_file, pagesize=letter)
+        width, height = letter
+
+        # --- Page 1: summary text ---
+        c.setFont("Helvetica", 16)
+        lines = summary_text.split("\n")
+        y = height / 2 + (len(lines)//2)*20  # start a bit above center
+        for line in lines:
+            c.drawCentredString(width/2, y, line)
+            y -= 20  # move down for next line
+        c.showPage()  # move to next page
+
+        # --- Remaining pages: PNG images ---
         for png_file in png_files:
-            img = plt.imread(png_file.open('rb'))
-            fig, ax = plt.subplots(figsize=(8.5, 11))
+            with png_file.open('rb') as f:
+                img = ImageReader(f)  # load only this image
 
-            # Leave some space at top for title
-            plt.subplots_adjust(top=0.90, bottom=0.05)
-            ax.imshow(img, aspect='equal')
-            ax.axis('off')
-            # Add filename heading above the image
-            fig.suptitle(png_file.stem, fontsize=14, weight='bold', y=0.97)
-            pdf.savefig(fig, dpi=600)
-            plt.close(fig)
+            # Fit image to page while preserving aspect ratio
+            img_width, img_height = img.getSize()
+            scale = min(width / img_width, height / img_height) * 0.95  # leave margin
+            draw_width = img_width * scale
+            draw_height = img_height * scale
+            x = (width - draw_width) / 2
+            y = (height - draw_height) / 2
+
+            c.drawImage(img, x, y, draw_width, draw_height)
+            # Draw the filename as title above the image
+            c.setFont("Helvetica-Bold", 14)
+            c.drawCentredString(width / 2, height - 40, png_file.stem)
+            c.showPage()  # finalize page
+
+        c.save()
 
 def save_figure(path_logdir, fig):
     buf = io.BytesIO()
@@ -400,11 +413,12 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             top_five_str += f"\nVariant {chrom}:{pos}: (count: {count})"
 
     summary_text = (
-        f"Summary of Significant Variants: {sig_results_counter} out of {len(variants)} variants "
+        f"Summary of Significant Variants: \n"
+        f"{sig_results_counter} out of {len(variants)} variants\n "
         f"had significant scores above the threshold {ARBITRARY_THRESHOLD}.\n"
         f"Top 5 positions with significant variants:{top_five_str}"
     )
-    pngs_to_pdf_anypath_matplotlib(output_root,summary_text)
+    pngs_to_pdf_streaming(output_root,summary_text)
     print(f'{sig_results_counter} out of {len(variants)} variants had significant scores above the threshold {ARBITRARY_THRESHOLD}.')
 
 if __name__ == '__main__':
