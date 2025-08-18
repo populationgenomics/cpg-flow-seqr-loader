@@ -4,9 +4,9 @@ from csv import DictReader
 import warnings
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 import numpy as np
-import gcsfs
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
 
@@ -15,12 +15,18 @@ from alphagenome.data import transcript as transcript_utils
 from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
 
+
+# This is a configurable parameter that can be set in the config file.
+# It determines the threshold for significance in variant scoring.
 ARBITRARY_THRESHOLD = config.config_retrieve(['alphagenome_params', 'sig_threshold'], default=0.99)
+
+# This is the path to the GTF file used for gene annotation.
 gtf = config.config_retrieve(
     ['alphagenome_params', 'gtf'],
     default='gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather',
 )
 
+# This is a list of variant scorers that will be used to score the variants.
 SCORER_CHOICES = [
     'RNA_SEQ',
     'SPLICE_JUNCTIONS',
@@ -28,6 +34,45 @@ SCORER_CHOICES = [
     'SPLICE_SITE_USAGE',
 ]
 
+
+def pngs_to_pdf_anypath_matplotlib(directory,summary_text):
+    """
+    #This function saves all individual PNG files in a directory to a single PDF file using matplotlib.
+    Args:
+        directory (str): Path to the directory containing variant pngs.
+        summary_text (str): Text indicating the top five significant variants positions
+        and their number of significant variants in that position.
+    Returns:
+        combined pdf file with all images placed in that same directory.
+    """
+    dir_path = to_anypath(directory)
+    png_files = sorted([f for f in dir_path.iterdir() if f.suffix.lower() == '.png'])
+    if not png_files:
+        print('No PNG files found.')
+        return
+
+    with PdfPages(to_anypath(f'{dir_path!s}/all_significant_vars.pdf').open('wb')) as pdf:
+        # Page 1: Summary giving the number of significant variants and a list of the top five positions with significant variants
+        fig, ax = plt.subplots(figsize=(8.5, 11))
+        ax.text(0.5, 0.5,summary_text,
+                ha='center', va='center', fontsize=16, wrap=True)
+        ax.axis('off')
+        pdf.savefig(fig, dpi=600, bbox_inches='tight')
+        plt.close(fig)
+
+        # Remaining pages: images with headings
+        for png_file in png_files:
+            img = plt.imread(png_file.open('rb'))
+            fig, ax = plt.subplots(figsize=(8.5, 11))
+
+            # Leave some space at top for title
+            plt.subplots_adjust(top=0.90, bottom=0.05)
+            ax.imshow(img, aspect='equal')
+            ax.axis('off')
+            # Add filename heading above the image
+            fig.suptitle(png_file.stem, fontsize=14, weight='bold', y=0.97)
+            pdf.savefig(fig, dpi=600)
+            plt.close(fig)
 
 def save_figure(path_logdir, fig):
     buf = io.BytesIO()
@@ -265,10 +310,12 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     transcript_extractor = load_transcript_extractor(gtf)
     # transcript_extractor = None
     model = dna_client.create(api_key)
-
+    print(f'Loaded {len(variants)} variants from {input_variants!s}.')
+    sig_results_counter = 0
+    sig_var_counter_dict = {}
     for var in variants:
         interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
-
+        key = (var.chromosome, var.position)
         variant_scores = model.score_variant(
             interval=interval,
             variant=var,
@@ -292,6 +339,9 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
         if significant_results is None:
             significant_results = filtered_scores
         else:
+            # track the number of significant results for this variant
+            sig_var_counter_dict[key] = sig_var_counter_dict.get(key, 0) + 1
+            sig_results_counter += 1
             significant_results = pd.concat([significant_results, filtered_scores])
 
         # track the types of significant scores
@@ -342,7 +392,21 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     with to_anypath(f'{output_root}.tsv').open('w') as handle:
         handle.write(buffer.read())
     buffer.close()
+    # Build top five summary string
+    top_five_str = ""
+    if sig_var_counter_dict:
+        top_five = sorted(sig_var_counter_dict.items(), key=lambda x: x[1], reverse=True)[:5]
+        for variant_key, count in top_five:
+            chrom, pos = variant_key
+            top_five_str += f"\nVariant {chrom}:{pos}: (count: {count})"
 
+    summary_text = (
+        f"Summary of Significant Variants: {sig_results_counter} out of {len(variants)} variants "
+        f"had significant scores above the threshold {ARBITRARY_THRESHOLD}.\n"
+        f"Top 5 positions with significant variants:{top_five_str}"
+    )
+    pngs_to_pdf_anypath_matplotlib(output_root,summary_text)
+    print(f'{sig_results_counter} out of {len(variants)} variants had significant scores above the threshold {ARBITRARY_THRESHOLD}.')
 
 if __name__ == '__main__':
     parser = ArgumentParser()
