@@ -34,10 +34,20 @@ from alphagenome.visualization import plot_components
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
 
+# In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
+
+
+def saving_figure(path_logdir, fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    with to_anypath(path_logdir).open('wb') as handle:
+        handle.write(buf.read())
+
 
 # defaults are brain, kidney, and nervous system, in that order
-organ = config.config_retrieve(
-    ['alphagenome_params', 'organs'],
+organs = config.config_retrieve(
+    ['alphagenome_parm', 'organs'],
     default=[
         'UBERON:0000992',
         'UBERON:0002371',
@@ -47,19 +57,23 @@ organ = config.config_retrieve(
         'UBERON:0001264',
     ],
 )
-threshold = config.config_retrieve(['alphagenome_params', 'threshold'], default=0.5)
-min_length = config.config_retrieve(['alphagenome_params', 'min_length'], default=1000)
-merge_distance = config.config_retrieve(['alphagenome_params', 'merge_distance'], default=300)
-window_size = config.config_retrieve(['alphagenome_params', 'window_size'], default=100)
-scan_span = config.config_retrieve(['alphagenome_params', 'scan_span'], default=50000)
-plot_non_sig = config.config_retrieve(['alphagenome_params', 'plot_non_sig'], default=False)
-scan_all_tracks = config.config_retrieve(['alphagenome_params', 'scan_all_tracks'], default=True)
-epsilon = config.config_retrieve(['alphagenome_params', 'epsilon'], default=1e-8)
-api_key = config.config_retrieve(['alphagenome_params', 'api_key'], default=None)
+threshold = config.config_retrieve(['alphagenome_parm', 'threshold'], default=0.5)
+min_length = config.config_retrieve(['alphagenome_parm', 'min_length'], default=1000)
+merge_distance = config.config_retrieve(['alphagenome_parm', 'merge_distance'], default=300)
+window_size = config.config_retrieve(['alphagenome_parm', 'window_size'], default=100)
+scan_span = config.config_retrieve(['alphagenome_parm', 'scan_span'], default=50000)
+plot_non_sig = config.config_retrieve(['alphagenome_parm', 'plot_non_sig'], default=False)
+scan_all_tracks = config.config_retrieve(['alphagenome_parm', 'scan_all_tracks'], default=True)
+epsilon = config.config_retrieve(['alphagenome_parm', 'epsilon'], default=1e-8)
+api_key = config.config_retrieve(['alphagenome_parm', 'api_key'], default=None)
 gtf = config.config_retrieve(
-    ['alphagenome_params', 'gtf'],
+    ['alphagenome_parm', 'gtf'],
     default='gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather',
 )
+col_chrom = config.config_retrieve(['alphagenome_parm', 'col_chrom'], default='CHROM')
+col_pos = config.config_retrieve(['alphagenome_parm', 'col_pos'], default='POS')
+col_ref = config.config_retrieve(['alphagenome_parm', 'col_ref'], default='REF')
+col_alt = config.config_retrieve(['alphagenome_parm', 'col_alt'], default='ALT')
 
 
 # precommit check
@@ -89,7 +103,55 @@ def build_parser() -> argparse.ArgumentParser:
 
 # ------------------------------------------------------------------
 # I/O
-# --------------------------------------------
+# ------------------------------------------------------------------
+
+
+def load_variants_table(path: str, col_chrom: str, col_pos: str, col_ref: str, col_alt: str) -> pd.DataFrame:
+    fp = Path(path)
+    if not fp.exists():
+        raise FileNotFoundError(path)
+    suf = fp.suffix.lower()
+    if suf in {'.tsv', '.txt'}:
+        df = pd.read_csv(fp, sep='\t')
+    elif suf == '.csv':
+        df = pd.read_csv(fp)
+    elif suf == '.vcf':
+        df = _load_vcf(fp)
+    else:
+        # fallback: try tab then comma
+        try:
+            df = pd.read_csv(fp, sep='\t')
+        except Exception:
+            df = pd.read_csv(fp)
+    mapping = {col_chrom: 'CHROM', col_pos: 'POS', col_ref: 'REF', col_alt: 'ALT'}
+    miss = [c for c in mapping if c not in df.columns]
+    if miss:
+        raise ValueError(f'Missing required columns: {miss}')
+    df = df.rename(columns=mapping)[['CHROM', 'POS', 'REF', 'ALT']]
+    return df
+
+
+def _load_vcf(fp: Path) -> pd.DataFrame:
+    chrom = []
+    pos = []
+    ref = []
+    alt = []
+    with fp.open() as fh:
+        for ln in fh:
+            if ln.startswith('#'):
+                continue
+            f = ln.rstrip('\n').split('\t')
+            chrom.append(f[0])
+            pos.append(int(f[1]))
+            ref.append(f[3])
+            alt.append(f[4].split(',')[0])  # first ALT only
+    return pd.DataFrame({'CHROM': chrom, 'POS': pos, 'REF': ref, 'ALT': alt})
+
+
+def ensure_output_dir(path: str) -> Path:
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 # ------------------------------------------------------------------
@@ -104,17 +166,6 @@ def load_transcript_extractor(gtf_path: str):
         gtf_t = gene_annotation.filter_protein_coding(gtf)
         gtf_t = gene_annotation.filter_to_longest_transcript(gtf_t)
         return transcript_utils.TranscriptExtractor(gtf_t)
-
-# In load_variants_table, if the input file is a GCS path, Path(path) will not work, and reading the file will fail.
-def saving_figure(path_logdir, fig):
-    buf = io.BytesIO()
-    fig.set_size_inches(12, 8)
-    fig.savefig(buf, format='png',dpi=300)
-    buf.seek(0)
-    with to_anypath(path_logdir).open('wb') as handle:
-        handle.write(buf.read())
-    buf.close()
-    plt.close()
 
 
 def get_dna_model(api_key: str | None = None):
@@ -181,26 +232,13 @@ def compute_window_scores(
     a /= float(window_size)
     r /= float(window_size)
     return (a / (r + epsilon)) - 1.0
-
-def compute_window_scores_alternative(
-    #Suggestions for alternative implementations that may be more representative of splicing events:
-    alt_vals: np.ndarray, ref_vals: np.ndarray, start_idx: int, end_idx: int, window_size: int, epsilon: float
-) -> np.ndarray:
-    """Return (n_windows, n_tracks) of ALT/REF−1 window means."""
-    n_bases, n_tracks = alt_vals.shape
-    start_idx = max(start_idx, 0)
-    end_idx = min(end_idx, n_bases)
-    n_windows = end_idx - start_idx - window_size + 1
-    if n_windows <= 0:
-        return np.empty((0, n_tracks))
-    scores = np.empty((n_windows, n_tracks))
-    for i in range(n_windows):
-        win_alt = alt_vals[start_idx + i : start_idx + i + window_size, :]
-        win_ref = ref_vals[start_idx + i : start_idx + i + window_size, :]
-        max_abs_diff = np.max(np.abs(win_alt - win_ref), axis=0)
-        mean_ref = np.mean(win_ref, axis=0)
-        scores[i, :] = max_abs_diff / (mean_ref + epsilon)
-    return scores
+    # Suggestions for alternative implementations that may be more representative of splicing events:
+    # scores = np.empty((n_windows, n_tracks))
+    # for i in range(n_windows):
+    #    win_alt = alt_vals[start_idx + i:start_idx + i + window_size, :]
+    #    win_ref = ref_vals[start_idx + i:start_idx + i + window_size, :]
+    #    scores[i, :] = np.max(np.abs(win_alt - win_ref), axis=0)
+    # return scores
 
 
 def call_regions(scores: np.ndarray, threshold: float, min_length: int, merge_distance: int) -> list[tuple[int, int]]:
@@ -398,22 +436,13 @@ def write_table(df: pd.DataFrame, path: str):
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    gcs_path = args.variants
-    if gcs_path.startswith("b/"):
-        print('Detected GCS path starting with "b/". Converting to gs:// format.')
-        # convert from b/.../o/... to gs://bucket/object
-        parts = gcs_path.split("/")
-        bucket = parts[1]
-        obj = "/".join(parts[3:])
-        gcs_path = f"gs://{bucket}/{obj}"
-    fs = gcsfs.GCSFileSystem()
-    with fs.open(gcs_path, "rb") as f:
-        variants_df = pd.read_csv(f, sep="\t")
 
+    # load inputs
+    variants_df = load_variants_table(args.variants, col_chrom, col_pos, col_ref, col_alt)
     transcript_extractor = load_transcript_extractor(gtf)
     dna_model = get_dna_model(api_key)
 
-    organs = organ or [
+    organs = organs or [
         'UBERON:0000992',
         'UBERON:0002371',
         'UBERON:0000948',
@@ -422,24 +451,9 @@ def main(argv: list[str] | None = None) -> int:
         'UBERON:0001264',
     ]
     out_dir = to_anypath(args.output_dir)
-    print(
-        f"Input variants path: {args.variants} | "
-        f"Output table path: {args.output_table} | "
-        f"Output summary table path: {args.output_table_sum} | "
-        f"Output directory for plots: {args.output_dir} | "
-        f"Organs: {organ} | "
-        f"Threshold: {threshold} | "
-        f"Minimum region length: {min_length} | "
-        f"Merge distance: {merge_distance} | "
-        f"Window size: {window_size} | "
-        f"Scan span: {scan_span} | "
-        f"Plot non-significant: {plot_non_sig} | "
-        f"Scan all tracks: {scan_all_tracks} | "
-        f"Epsilon: {epsilon} | "
-        f"API key: Get yer own | "
-        f"GTF path: {gtf}"
-    )
+
     results_rows = []
+
     for ontology in organs:
         number_rank = 0
         for _, row in variants_df.iterrows():
@@ -483,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             end_idx = center_idx + scan_span  # exclusive after adjust in compute
 
             # compute window scores (vectorized)
-            win_scores = compute_window_scores_alternative(alt_vals, ref_vals, start_idx, end_idx, window_size, epsilon)
+            win_scores = compute_window_scores(alt_vals, ref_vals, start_idx, end_idx, window_size, epsilon)
             if win_scores.size == 0:
                 warnings.warn(f'Scan span/window too large/small near edges for {variant}.')
                 continue
@@ -590,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if sig_any or plot_non_sig:
                 plot_path = out_dir / (f'{ontology}_{number_rank}_{variant.chromosome}_{variant.position}.png')
-                #plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
+                plot_variant_tracks(variant, interval, vout, transcript_extractor, plot_size, plot_path)
                 # back-fill plot_file for recent rows
                 for r in results_rows[-n_tracks:]:
                     if r['chrom'] == variant.chromosome and r['pos'] == variant.position and r['ontology'] == ontology:
