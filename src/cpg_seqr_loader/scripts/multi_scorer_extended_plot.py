@@ -34,8 +34,6 @@ SCORER_CHOICES = [
     'SPLICE_SITE_USAGE',
 ]
 
-
-
 def pngs_to_pdf_anypath_matplotlib(directory,summary_text):
     """
     #This function saves all individual PNG files in a directory to a single PDF file using matplotlib.
