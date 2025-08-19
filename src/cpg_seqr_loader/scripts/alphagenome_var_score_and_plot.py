@@ -1,20 +1,20 @@
 import io
+import warnings
 from argparse import ArgumentParser
 from csv import DictReader
-import warnings
 
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-import pandas as pd
 import numpy as np
-from cloudpathlib.anypath import to_anypath
-from cpg_utils import config
-
-from alphagenome.data import genome, gene_annotation
+import pandas as pd
+from alphagenome.data import gene_annotation, genome
 from alphagenome.data import transcript as transcript_utils
 from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
-
+from cloudpathlib.anypath import to_anypath
+from cpg_utils import config
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 # This is a configurable parameter that can be set in the config file.
 # It determines the threshold for significance in variant scoring.
@@ -33,9 +33,7 @@ SCORER_CHOICES = [
     'SPLICE_SITES',
     'SPLICE_SITE_USAGE',
 ]
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import ImageReader
+
 
 
 def pngs_to_pdf_streaming(directory, summary_text):
@@ -46,10 +44,10 @@ def pngs_to_pdf_streaming(directory, summary_text):
     dir_path = to_anypath(directory)
     png_files = sorted([f for f in dir_path.iterdir() if f.suffix.lower() == '.png'])
     if not png_files:
-        print("No PNG files found.")
+        print('No PNG files found.')
         return
 
-    pdf_path = to_anypath(f"{dir_path!s}/all_significant_vars.pdf")
+    pdf_path = to_anypath(f'{dir_path!s}/all_significant_vars.pdf')
 
     # Open PDF for writing in cloud storage
     with pdf_path.open('wb') as out_file:
@@ -57,11 +55,11 @@ def pngs_to_pdf_streaming(directory, summary_text):
         width, height = letter
 
         # --- Page 1: summary text ---
-        c.setFont("Helvetica", 16)
-        lines = summary_text.split("\n")
-        y = height / 2 + (len(lines)//2)*20  # start a bit above center
+        c.setFont('Helvetica', 16)
+        lines = summary_text.split('\n')
+        y = height / 2 + (len(lines) // 2) * 20  # start a bit above center
         for line in lines:
-            c.drawCentredString(width/2, y, line)
+            c.drawCentredString(width / 2, y, line)
             y -= 20  # move down for next line
         c.showPage()  # move to next page
 
@@ -80,11 +78,12 @@ def pngs_to_pdf_streaming(directory, summary_text):
 
             c.drawImage(img, x, y, draw_width, draw_height)
             # Draw the filename as title above the image
-            c.setFont("Helvetica-Bold", 14)
+            c.setFont('Helvetica-Bold', 14)
             c.drawCentredString(width / 2, height - 40, png_file.stem)
             c.showPage()  # finalize page
 
         c.save()
+
 
 def save_figure(path_logdir, fig):
     buf = io.BytesIO()
@@ -152,22 +151,17 @@ def load_transcript_extractor(gtf_path: str):
 
 def plot_variant_tracks(
     variant,
-    interval,
     vout,
     transcript_extractor,
     outpath: str,
-    significant_types: set[str],
-):
+    significant_types: set[str]):
     print(f'{variant!s} {significant_types}')
     plot_size = 2**16
-
     ref_output = vout.reference
     alt_output = vout.alternate
     ref_alt_colors = {'REF': 'dimgrey', 'ALT': 'red'}
     plot_elements = []
-
     plot_negative, plot_positive = False, False
-
     # Transcript annotation - tighten this window to limit the view to transcripts we'll actually plot
     if transcripts := transcript_extractor.extract(variant.reference_interval.resize(dna_client.SEQUENCE_LENGTH_100KB)):
         for transcript in transcripts:
@@ -295,13 +289,13 @@ def plot_variant_tracks(
                 fig_width=30,
                 interval=vout.reference.splice_sites.interval.resize(plot_size),
                 annotations=[plot_components.VariantAnnotation([variant], alpha=0.8)],
-                title=f'Predicted REF vs. ALT effects of variant in Kidney tissue\nSignificant types: {", ".join(sorted(significant_types))}',
+                title=f'Predicted REF vs. ALT effects of variant in Kidney tissue\n'
+                      f'Significant types: {", ".join(sorted(significant_types))}',
             )
             save_figure(outpath, plot)
             plt.close()
         except ValueError:  # raised if `y` is empty.
             print('No plot elements found. Skipping plot rendering.')
-
 
 def main(input_variants: str, output_root: str, ontology: list[str], api_key: str):
     """
@@ -320,7 +314,6 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
     significant_results: pd.DataFrame | None = None
     transcript_extractor = load_transcript_extractor(gtf)
-    # transcript_extractor = None
     model = dna_client.create(api_key)
     print(f'Loaded {len(variants)} variants from {input_variants!s}.')
     sig_results_counter = 0
@@ -357,7 +350,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             significant_results = pd.concat([significant_results, filtered_scores])
 
         # track the types of significant scores
-        significant_types = set(filtered_scores.output_type.values.flatten())
+        significant_types = set(filtered_scores.output_type.to_numpy().flatten())
 
         # if there's significance, go on to plot the variant
         variant_prediction = model.predict_variant(
@@ -376,7 +369,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
         alt_vals = variant_prediction.alternate.splice_sites.values
         n_tracks = alt_vals.shape[1]
         if n_tracks == 0:
-            warnings.warn(f'No tracks available for {ontology}; skipping variant {var}.')
+            warnings.warn(f'No tracks available for {ontology}; skipping variant {var}.', stacklevel=2)
             continue
 
         # indel alignment
@@ -386,7 +379,6 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         plot_variant_tracks(
             var,
-            interval,
             variant_prediction,
             transcript_extractor,
             f'{output_root!s}/{var!s}.png',
@@ -405,21 +397,25 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
         handle.write(buffer.read())
     buffer.close()
     # Build top five summary string
-    top_five_str = ""
+    top_five_str = ''
     if sig_var_counter_dict:
         top_five = sorted(sig_var_counter_dict.items(), key=lambda x: x[1], reverse=True)[:5]
         for variant_key, count in top_five:
             chrom, pos = variant_key
-            top_five_str += f"\nVariant {chrom}:{pos}: (count: {count})"
+            top_five_str += f'\nVariant {chrom}:{pos}: (count: {count})'
 
     summary_text = (
-        f"Summary of Significant Variants: \n"
-        f"{sig_results_counter} out of {len(variants)} variants\n "
-        f"had significant scores above the threshold {ARBITRARY_THRESHOLD}.\n"
-        f"Top 5 positions with significant variants:{top_five_str}"
+        f'Summary of Significant Variants: \n'
+        f'{sig_results_counter} out of {len(variants)} variants\n '
+        f'had significant scores above the threshold {ARBITRARY_THRESHOLD}.\n'
+        f'Top 5 positions with significant variants:{top_five_str}'
     )
-    pngs_to_pdf_streaming(output_root,summary_text)
-    print(f'{sig_results_counter} out of {len(variants)} variants had significant scores above the threshold {ARBITRARY_THRESHOLD}.')
+    pngs_to_pdf_streaming(output_root, summary_text)
+    print(
+        f'{sig_results_counter} out of {len(variants)} '
+        f'variants had significant scores above the threshold {ARBITRARY_THRESHOLD}.'
+    )
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()
