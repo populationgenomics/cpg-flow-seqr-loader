@@ -12,7 +12,7 @@ from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
-from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -23,7 +23,7 @@ ARBITRARY_THRESHOLD = config.config_retrieve(['alphagenome_params', 'sig_thresho
 # This is the path to the GTF file used for gene annotation.
 gtf = config.config_retrieve(
     ['alphagenome_params', 'gtf'],
-    default='gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather',
+    default='gencode.v46.annotation.gtf.gz.feather',
 )
 
 # This is a list of variant scorers that will be used to score the variants.
@@ -33,7 +33,6 @@ SCORER_CHOICES = [
     'SPLICE_SITES',
     'SPLICE_SITE_USAGE',
 ]
-
 
 
 def pngs_to_pdf_streaming(directory, summary_text):
@@ -51,8 +50,8 @@ def pngs_to_pdf_streaming(directory, summary_text):
 
     # Open PDF for writing in cloud storage
     with pdf_path.open('wb') as out_file:
-        c = canvas.Canvas(out_file, pagesize=letter)
-        width, height = letter
+        c = canvas.Canvas(out_file, pagesize=landscape(letter))
+        width, height = landscape(letter)
 
         # --- Page 1: summary text ---
         c.setFont('Helvetica', 16)
@@ -122,21 +121,21 @@ def load_variants_table(path: str):
 def align_reference_for_indel(variant, interval, vout, length_alter: int):
     """Shift REF track in-place to align with ALT for indels (original logic)."""
     if length_alter > 0:  # deletion
-        vout.reference.splice_sites.values[
+        vout.reference.splice_sites.values[ # noqa: PD011
             (variant.position - interval.start) : (interval.end - interval.start - length_alter)
-        ] = vout.reference.splice_sites.values[
+        ] = vout.reference.splice_sites.values[ # noqa: PD011
             (variant.position - interval.start + length_alter) : (interval.end - interval.start)
         ]
-        vout.reference.splice_sites.values[
+        vout.reference.splice_sites.values[ # noqa: PD011
             (interval.end - interval.start - length_alter) : (interval.end - interval.start)
         ] = np.nan
     elif length_alter < 0:  # insertion
-        vout.reference.splice_sites.values[
+        vout.reference.splice_sites.values[ # noqa: PD011
             (variant.position - interval.start - length_alter) : (interval.end - interval.start)
-        ] = vout.reference.splice_sites.values[
+        ] = vout.reference.splice_sites.values[ # noqa: PD011
             (variant.position - interval.start) : (interval.end - interval.start + length_alter)
         ]
-        vout.reference.splice_sites.values[
+        vout.reference.splice_sites.values[ # noqa: PD011
             (variant.position - interval.start) : (variant.position - interval.start - length_alter)
         ] = np.nan
     # SNV => no shift
@@ -149,12 +148,7 @@ def load_transcript_extractor(gtf_path: str):
     return transcript_utils.TranscriptExtractor(gtf_t)
 
 
-def plot_variant_tracks(
-    variant,
-    vout,
-    transcript_extractor,
-    outpath: str,
-    significant_types: set[str]):
+def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, significant_types: set[str]): #noqa: PLR0915
     print(f'{variant!s} {significant_types}')
     plot_size = 2**16
     ref_output = vout.reference
@@ -290,12 +284,13 @@ def plot_variant_tracks(
                 interval=vout.reference.splice_sites.interval.resize(plot_size),
                 annotations=[plot_components.VariantAnnotation([variant], alpha=0.8)],
                 title=f'Predicted REF vs. ALT effects of variant in Kidney tissue\n'
-                      f'Significant types: {", ".join(sorted(significant_types))}',
+                f'Significant types: {", ".join(sorted(significant_types))}',
             )
             save_figure(outpath, plot)
             plt.close()
         except ValueError:  # raised if `y` is empty.
             print('No plot elements found. Skipping plot rendering.')
+
 
 def main(input_variants: str, output_root: str, ontology: list[str], api_key: str):
     """
@@ -366,8 +361,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
         )
 
         # track count
-        alt_vals = variant_prediction.alternate.splice_sites.values
-        n_tracks = alt_vals.shape[1]
+        n_tracks = variant_prediction.alternate.splice_sites.num_tracks
         if n_tracks == 0:
             warnings.warn(f'No tracks available for {ontology}; skipping variant {var}.', stacklevel=2)
             continue
