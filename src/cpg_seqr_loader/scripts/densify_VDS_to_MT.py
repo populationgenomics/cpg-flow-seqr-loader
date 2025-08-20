@@ -45,16 +45,16 @@ def main(
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(['combiner', 'worker_memory'], 'highmem'),
-        driver_memory=config.config_retrieve(['combiner', 'driver_memory'], 'highmem'),
-        driver_cores=config.config_retrieve(['combiner', 'driver_cores'], 2),
+        worker_memory=config.config_retrieve(["combiner", "worker_memory"], "highmem"),
+        driver_memory=config.config_retrieve(["combiner", "driver_memory"], "highmem"),
+        driver_cores=config.config_retrieve(["combiner", "driver_cores"], 2),
     )
 
-    partitions = config.config_retrieve(['workflow', 'densify_partitions'], 2000)
+    partitions = config.config_retrieve(["workflow", "densify_partitions"], 2000)
 
     # check here to see if we can reuse the dense MT
     if not utils.can_reuse(dense_mt_out):
-        loguru.logger.info(f'Densifying data, using {partitions} partitions')
+        loguru.logger.info(f"Densifying data, using {partitions} partitions")
 
         # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
         vds = hl.vds.read_vds(vds_in, n_partitions=partitions)
@@ -89,16 +89,16 @@ def main(
         mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
 
         # unpack mt.info.info back into mt.info. Must be better syntax for this?
-        mt = mt.drop('gvcf_info')
+        mt = mt.drop("gvcf_info")
 
-        loguru.logger.info('Splitting multiallelics, in a sparse way')
+        loguru.logger.info("Splitting multiallelics, in a sparse way")
         mt = hl.experimental.sparse_split_multi(mt)
 
-        loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
+        loguru.logger.info(f"Writing fresh data into {dense_mt_out}")
         mt.write(dense_mt_out, overwrite=True)
 
     else:
-        loguru.logger.info(f'Accepting existing data in {dense_mt_out}')
+        loguru.logger.info(f"Accepting existing data in {dense_mt_out}")
 
     if not (sites_only or separate_header):
         return
@@ -110,34 +110,34 @@ def main(
 
     # write a directory containing all the per-partition VCF fragments, each with a VCF header
     if sites_only:
-        loguru.logger.info('Writing sites-only VCF, header-per-shard')
-        hl.export_vcf(sites_only_ht, sites_only, tabix=True, parallel='header_per_shard')
+        loguru.logger.info("Writing sites-only VCF, header-per-shard")
+        hl.export_vcf(sites_only_ht, sites_only, tabix=True, parallel="header_per_shard")
 
     # write a directory containing all the per-partition VCF fragments, with a separate VCF header file
     if separate_header:
-        loguru.logger.info('Writing sites-only VCF, separate-header')
-        hl.export_vcf(sites_only_ht, separate_header, tabix=True, parallel='separate_header')
+        loguru.logger.info("Writing sites-only VCF, separate-header")
+        hl.export_vcf(sites_only_ht, separate_header, tabix=True, parallel="separate_header")
 
 
 def cli_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--input',
-        help='Path to the input VDS',
+        "--input",
+        help="Path to the input VDS",
         required=True,
     )
     parser.add_argument(
-        '--output',
-        help='Path to write the result',
+        "--output",
+        help="Path to write the result",
         required=True,
     )
     parser.add_argument(
-        '--sites_only',
-        help='Specify an output path for a sites-only VCF, or None',
+        "--sites_only",
+        help="Specify an output path for a sites-only VCF, or None",
     )
     parser.add_argument(
-        '--separate_header',
-        help='Specify an output path for a sites-only VCF, with a separate header file, or None',
+        "--separate_header",
+        help="Specify an output path for a sites-only VCF, with a separate header file, or None",
     )
     args = parser.parse_args()
     main(
@@ -148,5 +148,5 @@ def cli_main():
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli_main()

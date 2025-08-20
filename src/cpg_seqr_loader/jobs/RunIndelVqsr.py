@@ -15,23 +15,23 @@ def apply_recalibration_indels(
     indel_tranches: str,
     output_path: str,
     job_attrs: dict,
-) -> 'BashJob':
+) -> "BashJob":
     """
     Apply indel recalibration to the annotated SNP VCF.
     """
 
     snp_vcf_in_batch = hail_batch.get_batch().read_input_group(
         vcf=snp_annotated_vcf,
-        vcf_index=f'{snp_annotated_vcf}.tbi',
+        vcf_index=f"{snp_annotated_vcf}.tbi",
     )
     indel_tranches_in_batch = hail_batch.get_batch().read_input(indel_tranches)
     indel_recalibration_in_batch = hail_batch.get_batch().read_input_group(
         recal=indel_recalibration,
-        recal_idx=f'{indel_recalibration}.idx',
+        recal_idx=f"{indel_recalibration}.idx",
     )
 
-    job = hail_batch.get_batch().new_bash_job(f'RunTrainedIndelVqsrOnCombinedVcf on {snp_annotated_vcf}', job_attrs)
-    job.image(config.config_retrieve(['images', 'gatk']))
+    job = hail_batch.get_batch().new_bash_job(f"RunTrainedIndelVqsrOnCombinedVcf on {snp_annotated_vcf}", job_attrs)
+    job.image(config.config_retrieve(["images", "gatk"]))
     res = resources.STANDARD.set_resources(
         j=job,
         ncpu=2,
@@ -40,12 +40,12 @@ def apply_recalibration_indels(
 
     job.declare_resource_group(
         output={
-            utils.VCF_GZ: '{root}.vcf.gz',
-            utils.VCF_GZ_TBI: '{root}.vcf.gz.tbi',
+            utils.VCF_GZ: "{root}.vcf.gz",
+            utils.VCF_GZ_TBI: "{root}.vcf.gz.tbi",
         }
     )
 
-    filter_level = config.config_retrieve(['vqsr', 'indel_filter_level'])
+    filter_level = config.config_retrieve(["vqsr", "indel_filter_level"])
 
     job.command(
         f"""
@@ -62,5 +62,5 @@ def apply_recalibration_indels(
     tabix -p vcf -f {job.output[utils.VCF_GZ]}
     """,
     )
-    hail_batch.get_batch().write_output(job.output, output_path.removesuffix('.vcf.gz'))
+    hail_batch.get_batch().write_output(job.output, output_path.removesuffix(".vcf.gz"))
     return job

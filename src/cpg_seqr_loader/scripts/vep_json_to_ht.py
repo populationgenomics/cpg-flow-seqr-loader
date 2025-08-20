@@ -17,9 +17,9 @@ def vep_json_to_ht(vep_result_paths: list[str], out_path: str):
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
-        driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
-        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
+        worker_memory=config.config_retrieve(["combiner", "worker_memory"]),
+        driver_memory=config.config_retrieve(["combiner", "driver_memory"]),
+        driver_cores=config.config_retrieve(["combiner", "driver_cores"]),
     )
 
     json_schema = hl.dtype(
@@ -170,9 +170,9 @@ def vep_json_to_ht(vep_result_paths: list[str], out_path: str):
     """,
     )
 
-    ht = hl.import_table(paths=vep_result_paths, no_header=True, types={'f0': json_schema})
+    ht = hl.import_table(paths=vep_result_paths, no_header=True, types={"f0": json_schema})
     ht = ht.transmute(vep=ht.f0)
-    split_vep_input = ht.vep.input.split('\t')
+    split_vep_input = ht.vep.input.split("\t")
     ht = ht.annotate(
         locus=hl.locus(ht.vep.seq_region_name, hl.parse_int(split_vep_input[1])),
         alleles=[split_vep_input[3], split_vep_input[4]],
@@ -183,12 +183,12 @@ def vep_json_to_ht(vep_result_paths: list[str], out_path: str):
 
 def cli_main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', help='VEP results JSON', required=True, nargs='+')
-    parser.add_argument('--output', help='Output Hail table', required=True)
+    parser.add_argument("--input", help="VEP results JSON", required=True, nargs="+")
+    parser.add_argument("--output", help="Output Hail table", required=True)
     args = parser.parse_args()
 
     vep_json_to_ht(vep_result_paths=args.input, out_path=args.output)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli_main()

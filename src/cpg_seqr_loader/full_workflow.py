@@ -13,11 +13,11 @@ from cpg_seqr_loader.stages import AnnotatedDatasetMtToVcf, ExportMtAsEsIndex
 
 def cli_main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dry_run', action='store_true', help='Dry run')
+    parser.add_argument("--dry_run", action="store_true", help="Dry run")
     args = parser.parse_args()
 
     workflow.run_workflow(stages=[ExportMtAsEsIndex, AnnotatedDatasetMtToVcf], dry_run=args.dry_run)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli_main()

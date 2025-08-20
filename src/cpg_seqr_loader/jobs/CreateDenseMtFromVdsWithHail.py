@@ -12,12 +12,12 @@ def generate_densify_jobs(
     output_sites_only: str,
     output_separate_header: str,
     job_attrs: dict[str, str],
-) -> 'BashJob':
+) -> "BashJob":
     job = hail_batch.get_batch().new_bash_job(
-        'Densify VDS and export MT',
-        attributes=job_attrs | {'tool': 'hail'},
+        "Densify VDS and export MT",
+        attributes=job_attrs | {"tool": "hail"},
     )
-    job.image(config.config_retrieve(['workflow', 'driver_image']))
+    job.image(config.config_retrieve(["workflow", "driver_image"]))
 
     job.command(
         f"""
