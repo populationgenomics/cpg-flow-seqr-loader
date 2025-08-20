@@ -312,7 +312,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     model = dna_client.create(api_key)
     print(f'Loaded {len(variants)} variants from {input_variants!s}.')
     sig_results_counter = 0
-    sig_var_counter_dict = {}
+    sig_var_counter_dict: dict[tuple[str, int], int] = {}
     for var in variants:
         interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
         key = (var.chromosome, var.position)
