@@ -327,6 +327,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             match_gene_strand=True,
         )
 
+
         filtered_scores = tidied_scores[tidied_scores['quantile_score'] >= ARBITRARY_THRESHOLD]
         filtered_scores = filtered_scores[filtered_scores['ontology_curie'].isin(ontology)]
 
