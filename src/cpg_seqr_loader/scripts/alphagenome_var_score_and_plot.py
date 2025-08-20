@@ -18,12 +18,12 @@ from reportlab.pdfgen import canvas
 
 # This is a configurable parameter that can be set in the config file.
 # It determines the threshold for significance in variant scoring.
-ARBITRARY_THRESHOLD = config.config_retrieve(["alphagenome_params", "sig_threshold"], default=0.99)
+THRESHOLD = config.config_retrieve(["alphagenome_params", "sig_threshold"], default=0.99)
 
 # This is the path to the GTF file used for gene annotation.
 gtf = config.config_retrieve(
     ["alphagenome_params", "gtf"],
-    default="gencode.v46.annotation.gtf.gz.feather",
+    default="gs://cpg-common-main/references/alphagenome/gencode.v46.annotation.gtf.gz.feather",
 )
 
 # This is a list of variant scorers that will be used to score the variants.
@@ -87,6 +87,7 @@ def pngs_to_pdf_streaming(directory, summary_text):
 def save_figure(path_logdir, fig):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    # reset buffer position to the beginning
     buf.seek(0)
     with to_anypath(path_logdir).open("wb") as handle:
         handle.write(buf.read())
@@ -149,6 +150,14 @@ def load_transcript_extractor(gtf_path: str):
 
 
 def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, significant_types: set[str]):  # noqa: PLR0915
+    """Plot the variant tracks for a given variant and save the figure.
+    Args:
+        variant (genome.Variant): The variant to plot.
+        vout (dna_client.VariantOutputs): The outputs from the variant prediction.
+        transcript_extractor (transcript_utils.TranscriptExtractor): Extractor for transcripts.
+        outpath (str): Path to save the output figure.
+        significant_types: set of significant types to plot, e.g. RNA_SEQ, SPLICE_JUNCTIONS, etc.
+    """
     print(f"{variant!s} {significant_types}")
     plot_size = 2**16
     ref_output = vout.reference
@@ -306,11 +315,13 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
     # as generated from the filter_mt_to_vars_of_interest.py script
     variants = load_variants_table(input_variants)
-
     significant_results: pd.DataFrame | None = None
     transcript_extractor = load_transcript_extractor(gtf)
     model = dna_client.create(api_key)
     print(f"Loaded {len(variants)} variants from {input_variants!s}.")
+    print(f"Using ontology terms: {ontology!s} with threshold {THRESHOLD}.")
+    # Initialize counters for significant results
+    # and a dictionary to track the number of significant variants per position
     sig_results_counter = 0
     sig_var_counter_dict: dict[tuple[str, int], int] = {}
     for var in variants:
@@ -327,7 +338,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             match_gene_strand=True,
         )
 
-        filtered_scores = tidied_scores[tidied_scores["quantile_score"] >= ARBITRARY_THRESHOLD]
+        filtered_scores = tidied_scores[tidied_scores["quantile_score"] >= THRESHOLD]
         filtered_scores = filtered_scores[filtered_scores["ontology_curie"].isin(ontology)]
 
         # If there are no scores above the threshold, skip to the next variant
@@ -367,10 +378,11 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
             continue
 
         # indel alignment
+        # If the variant is an indel, align the reference splice sites to the alternate
         length_alter = len(var.reference_bases) - len(var.alternate_bases)
         if length_alter != 0:
             align_reference_for_indel(var, interval, variant_prediction, length_alter)
-
+        # Plot and save the variant tracks
         plot_variant_tracks(
             var,
             variant_prediction,
@@ -401,13 +413,12 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     summary_text = (
         f"Summary of Significant Variants: \n"
         f"{sig_results_counter} out of {len(variants)} variants\n "
-        f"had significant scores above the threshold {ARBITRARY_THRESHOLD}.\n"
+        f"had significant scores above the threshold {THRESHOLD}.\n"
         f"Top 5 positions with significant variants:{top_five_str}"
     )
     pngs_to_pdf_streaming(output_root, summary_text)
     print(
-        f"{sig_results_counter} out of {len(variants)} "
-        f"variants had significant scores above the threshold {ARBITRARY_THRESHOLD}."
+        f"{sig_results_counter} out of {len(variants)} variants had significant scores above the threshold {THRESHOLD}."
     )
 
 
