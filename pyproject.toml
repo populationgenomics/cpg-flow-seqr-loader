@@ -79,7 +79,7 @@ extend-exclude = ["venv", ".mypy_cache", ".venv", "build", "dist"]
 
 [tool.ruff.format]
 indent-style = 'space'
-quote-style = "single"
+quote-style = "double"
 
 [tool.ruff.lint]
 # ignore pydocstyle, flake8-boolean-trap (FBT)
