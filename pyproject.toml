@@ -79,7 +79,7 @@ extend-exclude = ["venv", ".mypy_cache", ".venv", "build", "dist"]
 
 [tool.ruff.format]
 indent-style = 'space'
-quote-style = "double"
+quote-style = "single"
 
 [tool.ruff.lint]
 # ignore pydocstyle, flake8-boolean-trap (FBT)
@@ -97,6 +97,7 @@ ignore = [
     "G004", # Logging statement uses f-string
     "PLW0603", # Using the global statement to update `<VAR>` is discouraged
     "Q000", # Single quotes found but double quotes preferred
+    "Q003", # Single quotes found but double quotes preferred
     "PLR0912", # Too many branches (> 12)
     "PLR0913", # Too many arguments in function (> 5)
     "C901", # method is too complex (> 10 conditions)

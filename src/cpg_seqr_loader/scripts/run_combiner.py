@@ -41,21 +41,21 @@ def main(
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(["combiner", "worker_memory"]),
-        driver_memory=config.config_retrieve(["combiner", "driver_memory"]),
-        driver_cores=config.config_retrieve(["combiner", "driver_cores"]),
+        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
+        driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
+        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
     )
 
     # generate these in the job, instead of passing through
-    force_new_combiner = config.config_retrieve(["combiner", "force_new_combiner"])
-    sequencing_type = config.config_retrieve(["workflow", "sequencing_type"])
+    force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'])
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
     # Load from save, if supplied (log correctly depending on force_new_combiner)
     if combiner_plan and force_new_combiner:
-        loguru.logger.info(f"Combiner plan {combiner_plan} will be ignored/written new")
+        loguru.logger.info(f'Combiner plan {combiner_plan} will be ignored/written new')
 
     elif combiner_plan:
-        loguru.logger.info(f"Resuming combiner plan from {combiner_plan}")
+        loguru.logger.info(f'Resuming combiner plan from {combiner_plan}')
 
     # do we have new content to add?
     if gvcfs_to_combine_file is not None:
@@ -74,7 +74,7 @@ def main(
         sgs_to_remove = None
 
     if not (sgs_to_remove or gvcf_paths):
-        raise ValueError("No samples to remove or gVCFs to add - please provide at least one of these")
+        raise ValueError('No samples to remove or gVCFs to add - please provide at least one of these')
 
     # logical steps -
     # 1. if there are samples to remove, do that first
@@ -84,13 +84,13 @@ def main(
 
     # 1 - do we need to do removal?
     if vds_path and sgs_to_remove:
-        loguru.logger.info(f"Removing sample groups {sgs_to_remove} from {vds_path}")
+        loguru.logger.info(f'Removing sample groups {sgs_to_remove} from {vds_path}')
 
-        temp_path = f"{tmp_prefix}/combiner_removal_temp.vds"
+        temp_path = f'{tmp_prefix}/combiner_removal_temp.vds'
 
         # this will only exist if the previous removal was successful, AND we have additional gVCFs to add
         if utils.exists(temp_path):
-            loguru.logger.info(f"Found existing VDS at {temp_path}, skipping removal step")
+            loguru.logger.info(f'Found existing VDS at {temp_path}, skipping removal step')
             vds_path = temp_path
 
         else:
@@ -99,7 +99,7 @@ def main(
 
             # 1a. if there are no samples to add, just remove the samples and write to eventual output path
             if not gvcf_paths:
-                loguru.logger.info(f"Writing to {output_vds_path}")
+                loguru.logger.info(f'Writing to {output_vds_path}')
                 vds.write(output_vds_path)
                 return
 
@@ -107,7 +107,7 @@ def main(
             # we've changed the VDS base, so we need to force a new combiner plan
             force_new_combiner = True
 
-            loguru.logger.info(f"Writing with removed SGs to {temp_path}")
+            loguru.logger.info(f'Writing with removed SGs to {temp_path}')
             vds.write(temp_path)
             vds_path = temp_path
 
@@ -119,25 +119,25 @@ def main(
         vds_paths=[vds_path] if vds_path else None,
         reference_genome=hail_batch.genome_build(),
         temp_path=tmp_prefix,
-        use_exome_default_intervals=sequencing_type == "exome",
-        use_genome_default_intervals=sequencing_type == "genome",
+        use_exome_default_intervals=sequencing_type == 'exome',
+        use_genome_default_intervals=sequencing_type == 'genome',
         force=force_new_combiner,
-        branch_factor=config.config_retrieve(["combiner", "branch_factor"]),
-        target_records=config.config_retrieve(["combiner", "target_records"]),
-        gvcf_batch_size=config.config_retrieve(["combiner", "gvcf_batch_size"]),
+        branch_factor=config.config_retrieve(['combiner', 'branch_factor']),
+        target_records=config.config_retrieve(['combiner', 'target_records']),
+        gvcf_batch_size=config.config_retrieve(['combiner', 'gvcf_batch_size']),
     )
 
     combiner.run()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output_vds", required=True, help="Location for the new combiner product")
-    parser.add_argument("--input_vds", help="Path to a VDS this run will build on top of")
-    parser.add_argument("--plan", help="Path to a Combiner plan")
-    parser.add_argument("--tmp", help="Temporary directory to use", required=True)
-    parser.add_argument("--gvcf_add_file", help="File containing gVCF paths to combine")
-    parser.add_argument("--sg_remove_file", help="File containing SG IDs to remove from the input VDS")
+    parser.add_argument('--output_vds', required=True, help='Location for the new combiner product')
+    parser.add_argument('--input_vds', help='Path to a VDS this run will build on top of')
+    parser.add_argument('--plan', help='Path to a Combiner plan')
+    parser.add_argument('--tmp', help='Temporary directory to use', required=True)
+    parser.add_argument('--gvcf_add_file', help='File containing gVCF paths to combine')
+    parser.add_argument('--sg_remove_file', help='File containing SG IDs to remove from the input VDS')
     args = parser.parse_args()
 
     main(

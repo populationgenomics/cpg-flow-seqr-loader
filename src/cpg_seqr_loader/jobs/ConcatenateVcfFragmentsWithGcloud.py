@@ -14,12 +14,12 @@ def create_and_run_compose_script(
     output: Path,
     tmp_dir: Path,
     job_attrs: dict,
-) -> list["BashJob"]:
+) -> list['BashJob']:
     local_manifest = hail_batch.get_batch().read_input(manifest_file)
 
     # generate a bash script to do the composition
-    job_1 = hail_batch.get_batch().new_bash_job(f"Create Compose Script: {multicohort.name}", attributes=job_attrs)
-    job_1.image(config.config_retrieve(["workflow", "driver_image"]))
+    job_1 = hail_batch.get_batch().new_bash_job(f'Create Compose Script: {multicohort.name}', attributes=job_attrs)
+    job_1.image(config.config_retrieve(['workflow', 'driver_image']))
     job_1.command(
         f"""
         python -m cpg_seqr_loader.scripts.write_gcloud_compose_script \\
@@ -27,12 +27,12 @@ def create_and_run_compose_script(
             --vcf_dir {manifest_dir} \\
             --output {output!s} \\
             --script {job_1.output} \\
-            --tmp {tmp_dir / "compose_intermediates" / multicohort.name!s}
+            --tmp {tmp_dir / 'compose_intermediates' / multicohort.name!s}
         """,
     )
 
-    job_2 = hail_batch.get_batch().new_bash_job(f"Run GCloud Compose: {multicohort.name}", attributes=job_attrs)
-    job_2.image(config.config_retrieve(["workflow", "driver_image"]))
-    job_2.command(f"bash {job_1.output}")
+    job_2 = hail_batch.get_batch().new_bash_job(f'Run GCloud Compose: {multicohort.name}', attributes=job_attrs)
+    job_2.image(config.config_retrieve(['workflow', 'driver_image']))
+    job_2.command(f'bash {job_1.output}')
 
     return [job_1, job_2]

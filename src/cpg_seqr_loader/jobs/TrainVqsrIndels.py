@@ -13,7 +13,7 @@ def train_vqsr_indel_model(
     sites_only_vcf: str,
     output_prefix: str,
     job_attrs: dict,
-) -> "BashJob":
+) -> 'BashJob':
     """Train VQSR indels on the sites-only VCF."""
     local_resources = utils.get_localised_resources_for_vqsr()
     siteonly_vcf = hail_batch.get_batch().read_input(sites_only_vcf)
@@ -28,26 +28,26 @@ def train_vqsr_indel_model(
     reasonable default for indels, as their number is smaller than SNPs.
     """
     job = hail_batch.get_batch().new_job(
-        "TrainVqsrIndelModelOnCombinerData",
-        job_attrs | {"tool": "gatk VariantRecalibrator"},
+        'TrainVqsrIndelModelOnCombinerData',
+        job_attrs | {'tool': 'gatk VariantRecalibrator'},
     )
-    job.image(config.config_retrieve(["images", "gatk"]))
-    job.command("set -euo pipefail")
+    job.image(config.config_retrieve(['images', 'gatk']))
+    job.command('set -euo pipefail')
 
     # We run it for the entire dataset in one job, so can take an entire instance.
     res = resources.HIGHMEM.set_resources(j=job, fraction=1, storage_gb=utils.INDEL_RECAL_DISC_SIZE)
 
-    tranche_cmdl = " ".join([f"-tranche {v}" for v in utils.INDEL_RECALIBRATION_TRANCHE_VALUES])
-    an_cmdl = " ".join(
-        [f"-an {v}" for v in utils.INDEL_ALLELE_SPECIFIC_FEATURES],
+    tranche_cmdl = ' '.join([f'-tranche {v}' for v in utils.INDEL_RECALIBRATION_TRANCHE_VALUES])
+    an_cmdl = ' '.join(
+        [f'-an {v}' for v in utils.INDEL_ALLELE_SPECIFIC_FEATURES],
     )
 
     # delclare a resource group for the output
     job.declare_resource_group(
         output={
-            "recal": "{root}.recal",
-            "recal.idx": "{root}.recal.idx",
-            "tranches": "{root}.tranches",
+            'recal': '{root}.recal',
+            'recal.idx': '{root}.recal.idx',
+            'tranches': '{root}.tranches',
         },
     )
     job.command(
@@ -65,9 +65,9 @@ def train_vqsr_indel_model(
           -mode INDEL \\
           --use-allele-specific-annotations \\
           --max-gaussians 4 \\
-          -resource:mills,known=false,training=true,truth=true,prior=12 {local_resources["mills"].base} \\
-          -resource:axiomPoly,known=false,training=true,truth=false,prior=10 {local_resources["axiom_poly"].base} \\
-          -resource:dbsnp,known=true,training=false,truth=false,prior=2 {local_resources["dbsnp"].base}
+          -resource:mills,known=false,training=true,truth=true,prior=12 {local_resources['mills'].base} \\
+          -resource:axiomPoly,known=false,training=true,truth=false,prior=10 {local_resources['axiom_poly'].base} \\
+          -resource:dbsnp,known=true,training=false,truth=false,prior=2 {local_resources['dbsnp'].base}
         """,
     )
     hail_batch.get_batch().write_output(job.output, output_prefix)

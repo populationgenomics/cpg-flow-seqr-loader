@@ -13,13 +13,13 @@ def create_annotate_cohort_job(
     variant_mt: str,
     checkpoint_prefix: Path,
     job_attrs: dict[str, str],
-) -> "BashJob":
+) -> 'BashJob':
     job = hail_batch.get_batch().new_bash_job(
-        "AnnotateCohort; join Vars, VEP, and VQSR",
-        attributes=job_attrs | {"tool": "hail"},
+        'AnnotateCohort; join Vars, VEP, and VQSR',
+        attributes=job_attrs | {'tool': 'hail'},
     )
-    job.image(config.config_retrieve(["workflow", "driver_image"]))
-    job.cpu(2).memory("highmem").storage("10Gi")
+    job.image(config.config_retrieve(['workflow', 'driver_image']))
+    job.cpu(2).memory('highmem').storage('10Gi')
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.annotate_cohort \\

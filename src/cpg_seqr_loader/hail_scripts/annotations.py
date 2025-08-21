@@ -4,8 +4,8 @@ from typing import Any
 import hail as hl
 
 logging.basicConfig(
-    format="%(asctime)s (%(name)s %(lineno)s): %(message)s",
-    datefmt="%m/%d/%Y %I:%M:%S %p",
+    format='%(asctime)s (%(name)s %(lineno)s): %(message)s',
+    datefmt='%m/%d/%Y %I:%M:%S %p',
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -252,15 +252,15 @@ def pab_max_expr(
     """
     if la_expr is not None:
         if n_alleles_expr is None:
-            raise ValueError("Must provide `n_alleles_expr` if `la_expr` is provided!")
+            raise ValueError('Must provide `n_alleles_expr` if `la_expr` is provided!')
 
-        ad_expr = hl.vds.local_to_global(ad_expr, la_expr, n_alleles_expr, fill_value=0, number="R")
+        ad_expr = hl.vds.local_to_global(ad_expr, la_expr, n_alleles_expr, fill_value=0, number='R')
         gt_expr = hl.vds.lgt_to_gt(gt_expr, la_expr)
 
     return hl.agg.array_agg(
         lambda x: hl.agg.filter(
             gt_expr.is_het(),
-            hl.agg.max(hl.binom_test(x, hl.sum(ad_expr), 0.5, "two-sided")),
+            hl.agg.max(hl.binom_test(x, hl.sum(ad_expr), 0.5, 'two-sided')),
         ),
         ad_expr[1:],  # Skip ref allele
     )

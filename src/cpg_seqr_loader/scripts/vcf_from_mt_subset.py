@@ -18,21 +18,21 @@ def vcf_from_mt_subset(input_mt: str, output: str):
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(["vcf_from_mt", "worker_memory"]),
-        driver_memory=config.config_retrieve(["vcf_from_mt", "driver_memory"]),
-        driver_cores=config.config_retrieve(["vcf_from_mt", "driver_cores"]),
+        worker_memory=config.config_retrieve(['vcf_from_mt', 'worker_memory']),
+        driver_memory=config.config_retrieve(['vcf_from_mt', 'driver_memory']),
+        driver_cores=config.config_retrieve(['vcf_from_mt', 'driver_cores']),
     )
 
     mt = hl.read_matrix_table(input_mt)
-    logger.info(f"Dataset MT dimensions: {mt.count()}")
+    logger.info(f'Dataset MT dimensions: {mt.count()}')
     hl.export_vcf(mt, output, tabix=True)
-    logger.info(f"Written {output}")
+    logger.info(f'Written {output}')
 
 
-if __name__ == "__main__":
-    parser = ArgumentParser(description="Write a VCF from a single-dataset MT")
-    parser.add_argument("--input", required=True, help="Path to the single-dataset MT to read in")
-    parser.add_argument("--output", required=True, help="Path to write the VCF to")
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Write a VCF from a single-dataset MT')
+    parser.add_argument('--input', required=True, help='Path to the single-dataset MT to read in')
+    parser.add_argument('--output', required=True, help='Path to write the VCF to')
     args = parser.parse_args()
 
     vcf_from_mt_subset(input_mt=args.input, output=args.output)

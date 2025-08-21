@@ -12,10 +12,10 @@ if TYPE_CHECKING:
 
 
 def quick_and_easy_bcftools_concat(
-    input_vcfs: list["ResourceGroup | Resource"],
+    input_vcfs: list['ResourceGroup | Resource'],
     storage_gb: int = 10,
     job_attrs: dict | None = None,
-) -> "BashJob":
+) -> 'BashJob':
     """
     A quick and easy way to concatenate VCFs
     Args:
@@ -26,24 +26,24 @@ def quick_and_easy_bcftools_concat(
         a ResourceGroup with the concatenated VCF, with the 'vcf.gz', and 'vcf.gz.tbi' attributes
     """
     job = hail_batch.get_batch().new_job(
-        f"Concat {len(input_vcfs)} VCFs", (job_attrs or {}) | {"tool": "bcftools concat"}
+        f'Concat {len(input_vcfs)} VCFs', (job_attrs or {}) | {'tool': 'bcftools concat'}
     )
-    job.image(config.config_retrieve(["images", "bcftools"]))
+    job.image(config.config_retrieve(['images', 'bcftools']))
     res = resources.STANDARD.set_resources(j=job, storage_gb=storage_gb)
 
     # declare a resource group for the concatenated output
     job.declare_resource_group(
         output={
-            "vcf.gz": "{root}.vcf.gz",
-            "vcf.gz.tbi": "{root}.vcf.gz.tbi",
+            'vcf.gz': '{root}.vcf.gz',
+            'vcf.gz.tbi': '{root}.vcf.gz.tbi',
         },
     )
     job.command(
         f"""
     bcftools concat \\
         --threads {res.get_nthreads() - 1} \\
-        -a {" ".join(vcf["vcf.gz"] for vcf in input_vcfs)} \\
-        -Oz -o {job.output["vcf.gz"]} \\
+        -a {' '.join(vcf['vcf.gz'] for vcf in input_vcfs)} \\
+        -Oz -o {job.output['vcf.gz']} \\
         -W=tbi
     """,
     )
@@ -56,7 +56,7 @@ def apply_snp_vqsr_to_fragments(
     temp_path: Path,
     output_path: str,
     job_attrs: dict,
-) -> list["BashJob"]:
+) -> list['BashJob']:
     """
     Apply SNP VQSR to the tranches
     I'm going to retry the stacking approach again to reduce job count
@@ -78,8 +78,8 @@ def apply_snp_vqsr_to_fragments(
     # we're creating these paths in expectation that they were written by the tranches stage
     snps_recal_resources = [
         hail_batch.get_batch().read_input_group(
-            recal=str(temp_path / f"snp_{i}.recal"),
-            idx=str(temp_path / f"snp_{i}.recal.idx"),
+            recal=str(temp_path / f'snp_{i}.recal'),
+            idx=str(temp_path / f'snp_{i}.recal.idx'),
         )
         for i in range(fragment_count)
     ]
@@ -90,7 +90,7 @@ def apply_snp_vqsr_to_fragments(
     recalibrated_vcfs = []
 
     vcf_counter = -1
-    snp_filter_level = config.config_retrieve(["vqsr", "snp_filter_level"])
+    snp_filter_level = config.config_retrieve(['vqsr', 'snp_filter_level'])
 
     for chunk_counter, vcfs_recals in enumerate(
         cpg_flow_utils.generator_chunks(
@@ -98,9 +98,9 @@ def apply_snp_vqsr_to_fragments(
         ),
     ):
         chunk_job = hail_batch.get_batch().new_bash_job(
-            f"RunTrainedSnpVqsrOnCombinerFragments, Chunk {chunk_counter}", job_attrs
+            f'RunTrainedSnpVqsrOnCombinerFragments, Chunk {chunk_counter}', job_attrs
         )
-        chunk_job.image(config.config_retrieve(["images", "gatk"]))
+        chunk_job.image(config.config_retrieve(['images', 'gatk']))
 
         # stores all the annotated VCFs in this chunk
         chunk_vcfs = []
@@ -117,8 +117,8 @@ def apply_snp_vqsr_to_fragments(
             chunk_job.declare_resource_group(
                 **{
                     counter_string: {
-                        utils.VCF_GZ: "{root}.vcf.gz",
-                        utils.VCF_GZ_TBI: "{root}.vcf.gz.tbi",
+                        utils.VCF_GZ: '{root}.vcf.gz',
+                        utils.VCF_GZ_TBI: '{root}.vcf.gz.tbi',
                     },
                 },
             )
@@ -127,14 +127,14 @@ def apply_snp_vqsr_to_fragments(
                 f"""
             gatk --java-options "{res.java_mem_options()}" \\
                 ApplyVQSR \\
-                -O {chunk_job[counter_string]["vcf.gz"]} \\
-                -V {vcf_resource["vcf.gz"]} \\
+                -O {chunk_job[counter_string]['vcf.gz']} \\
+                -V {vcf_resource['vcf.gz']} \\
                 --recal-file {recal_resource.recal} \\
                 --tranches-file {tranches_in_batch} \\
                 --truth-sensitivity-filter-level {snp_filter_level} \\
                 --use-allele-specific-annotations \\
                 -mode SNP
-            tabix -p vcf -f {chunk_job[counter_string]["vcf.gz"]}
+            tabix -p vcf -f {chunk_job[counter_string]['vcf.gz']}
             """,
             )
             chunk_vcfs.append(chunk_job[counter_string])
@@ -158,5 +158,5 @@ def apply_snp_vqsr_to_fragments(
     final_gather_job.depends_on(*jobs)
     jobs.append(final_gather_job)
 
-    hail_batch.get_batch().write_output(final_gather_job.output, output_path.removesuffix(".vcf.gz"))
+    hail_batch.get_batch().write_output(final_gather_job.output, output_path.removesuffix('.vcf.gz'))
     return jobs

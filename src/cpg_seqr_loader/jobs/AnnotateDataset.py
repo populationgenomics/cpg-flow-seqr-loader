@@ -12,15 +12,15 @@ def create_annotate_dataset_job(
     input_mt: str,
     output_mt: Path,
     job_attrs: dict[str, str],
-) -> "BashJob":
+) -> 'BashJob':
     job = hail_batch.get_batch().new_bash_job(
-        f"AnnotateDataset for {dataset.name}",
-        attributes=job_attrs | {"tool": "hail"},
+        f'AnnotateDataset for {dataset.name}',
+        attributes=job_attrs | {'tool': 'hail'},
     )
 
-    job.cpu(2).memory("highmem").storage("10Gi")
+    job.cpu(2).memory('highmem').storage('10Gi')
 
-    job.image(config.config_retrieve(["workflow", "driver_image"]))
+    job.image(config.config_retrieve(['workflow', 'driver_image']))
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.annotate_dataset \\

@@ -65,8 +65,8 @@ from cpg_seqr_loader.hail_scripts import variant_id, vep
 
 # adj is the adjusted population, which is the default for gnomAD v4
 # all samples across all groups, adjusted for technical artifacts
-GNOMAD_TARGET_POP = "adj"
-GNOMAD_XY_TARGET_POP = "XY_adj"
+GNOMAD_TARGET_POP = 'adj'
+GNOMAD_XY_TARGET_POP = 'XY_adj'
 
 
 def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
@@ -78,9 +78,9 @@ def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
         ht_path ():
     """
     if utils.can_reuse(ht_path):
-        loguru.logger.info(f"Reading VQSR checkpoint from {ht_path}")
+        loguru.logger.info(f'Reading VQSR checkpoint from {ht_path}')
         return hl.read_table(str(ht_path))
-    loguru.logger.info(f"AS-VQSR: importing annotations from a site-only VCF {vcf_path}")
+    loguru.logger.info(f'AS-VQSR: importing annotations from a site-only VCF {vcf_path}')
     vqsr_ht = hl.import_vcf(
         vcf_path,
         reference_genome=hail_batch.genome_build(),
@@ -107,7 +107,7 @@ def load_vqsr(vcf_path: str, ht_path: Path) -> hl.Table:
     # one, with one AS_FilterStatus value. So for the first one indexing by allele
     # index would work, but for the second one it would throw an index out of bounds:
     # `HailException: array index out of bounds: index=1, length=1`
-    vqsr_ht = vqsr_ht.annotate(info=vqsr_ht.info.drop(*[f for f in vqsr_ht.info if (f.startswith("AS_") or f == "SB")]))
+    vqsr_ht = vqsr_ht.annotate(info=vqsr_ht.info.drop(*[f for f in vqsr_ht.info if (f.startswith('AS_') or f == 'SB')]))
     return vqsr_ht.checkpoint(str(ht_path), overwrite=True)
 
 
@@ -122,7 +122,7 @@ def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
         same MT, with gnomAD 4 annotations placed into the INFO struct as a nested Struct
     """
 
-    gnomad4_ht = hl.read_table(config.reference_path("gnomad_4.1_joint_ht"))
+    gnomad4_ht = hl.read_table(config.reference_path('gnomad_4.1_joint_ht'))
 
     # the index of the target populations in the joint.freq array
     target_index = hl.eval(gnomad4_ht.globals.joint_globals.freq_index_dict[GNOMAD_TARGET_POP])
@@ -166,35 +166,35 @@ def annotate_cohort(
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(["combiner", "worker_memory"]),
-        driver_memory=config.config_retrieve(["combiner", "driver_memory"]),
-        driver_cores=config.config_retrieve(["combiner", "driver_cores"]),
+        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
+        driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
+        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
     )
 
     mt = hl.read_matrix_table(mt_path)
-    loguru.logger.info(f"Imported MT from {mt_path} as {mt.n_partitions()} partitions")
+    loguru.logger.info(f'Imported MT from {mt_path} as {mt.n_partitions()} partitions')
 
     # Annotate VEP. Do it before splitting multi, because we run VEP on unsplit VCF,
     # and hl.split_multi_hts can handle multiallelic VEP field.
     vep_ht = hl.read_table(vep_ht_path)
-    loguru.logger.info(f"Adding VEP annotations into the Matrix Table from {vep_ht_path}")
-    loguru.logger.info(f"VEP loaded as {vep_ht.n_partitions()} partitions")
+    loguru.logger.info(f'Adding VEP annotations into the Matrix Table from {vep_ht_path}')
+    loguru.logger.info(f'VEP loaded as {vep_ht.n_partitions()} partitions')
 
-    mt = mt.checkpoint(output=join(checkpoint_prefix, "mt_vep.mt"), overwrite=True)
+    mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_vep.mt'), overwrite=True)
 
     if vqsr_vcf_path:
-        loguru.logger.info("Adding VQSR annotations into the Matrix Table")
-        vqsr_checkpoint = to_path(checkpoint_prefix) / "vqsr.ht"
+        loguru.logger.info('Adding VQSR annotations into the Matrix Table')
+        vqsr_checkpoint = to_path(checkpoint_prefix) / 'vqsr.ht'
         vqsr_ht = load_vqsr(vqsr_vcf_path, vqsr_checkpoint)
         mt = mt.annotate_globals(**vqsr_ht.index_globals())
         mt = mt.annotate_rows(
             info=vqsr_ht[mt.row_key].info,
-            filters=vqsr_ht[mt.row_key].filters.filter(lambda val: val != "PASS"),
+            filters=vqsr_ht[mt.row_key].filters.filter(lambda val: val != 'PASS'),
         )
-        mt = mt.checkpoint(output=join(checkpoint_prefix, "mt_vep_vqsr.mt"), overwrite=True)
+        mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_vep_vqsr.mt'), overwrite=True)
 
-    ref_ht = hl.read_table(config.reference_path("seqr_combined_reference_data"))
-    clinvar_ht = hl.read_table(config.reference_path("seqr_clinvar"))
+    ref_ht = hl.read_table(config.reference_path('seqr_combined_reference_data'))
+    clinvar_ht = hl.read_table(config.reference_path('seqr_clinvar'))
 
     mt = hl.variant_qc(mt)
     mt = mt.annotate_rows(
@@ -205,7 +205,7 @@ def annotate_cohort(
         ),
         vep=vep_ht[mt.row_key].vep,
     )
-    mt = mt.drop("variant_qc")
+    mt = mt.drop('variant_qc')
 
     # split the AC/AF attributes into separate entries, overwriting the array in INFO
     # these elements become a 1-element array for [ALT] instead [REF, ALT]
@@ -216,7 +216,7 @@ def annotate_cohort(
         ),
     )
 
-    loguru.logger.info("Annotating with clinvar and munging annotation fields")
+    loguru.logger.info('Annotating with clinvar and munging annotation fields')
     mt = mt.annotate_rows(
         # still taking just a single value here for downstream compatibility in Seqr
         AC=mt.info.AC[0],
@@ -243,19 +243,19 @@ def annotate_cohort(
     mt = annotate_gnomad4(mt)
 
     # this was previously executed in the MtToEs job, as it wasn't possible on QoB
-    loguru.logger.info("Adding GRCh37 coords")
-    liftover_path = config.reference_path("liftover_38_to_37")
-    rg37 = hl.get_reference("GRCh37")
-    rg38 = hl.get_reference("GRCh38")
+    loguru.logger.info('Adding GRCh37 coords')
+    liftover_path = config.reference_path('liftover_38_to_37')
+    rg37 = hl.get_reference('GRCh37')
+    rg38 = hl.get_reference('GRCh38')
     rg38.add_liftover(liftover_path, rg37)
-    mt = mt.annotate_rows(rg37_locus=hl.liftover(mt.locus, "GRCh37"))
+    mt = mt.annotate_rows(rg37_locus=hl.liftover(mt.locus, 'GRCh37'))
 
     # only remove InbreedingCoeff if present (post-VQSR)
-    if "InbreedingCoeff" in mt.info:
-        mt = mt.annotate_rows(info=mt.info.drop("InbreedingCoeff"))
+    if 'InbreedingCoeff' in mt.info:
+        mt = mt.annotate_rows(info=mt.info.drop('InbreedingCoeff'))
 
     loguru.logger.info(
-        "Annotating with seqr-loader fields: round 2 (expanding sortedTranscriptConsequences, ref_data, clinvar_data)",
+        'Annotating with seqr-loader fields: round 2 (expanding sortedTranscriptConsequences, ref_data, clinvar_data)',
     )
     mt = mt.annotate_rows(
         domains=vep.get_expr_for_vep_protein_domains_set_from_sorted(mt.sortedTranscriptConsequences),
@@ -287,23 +287,23 @@ def annotate_cohort(
     )
     mt = mt.annotate_globals(
         sourceFilePath=mt_path,
-        genomeVersion=hail_batch.genome_build().replace("GRCh", ""),
+        genomeVersion=hail_batch.genome_build().replace('GRCh', ''),
         hail_version=hl.version(),
     )
-    if sequencing_type := config.config_retrieve(["workflow", "sequencing_type"]):
+    if sequencing_type := config.config_retrieve(['workflow', 'sequencing_type']):
         # Map to Seqr-style string
         # https://github.com/broadinstitute/seqr/blob/e0c179c36c0f68c892017de5eab2e4c1b9ffdc92/seqr/models.py#L592-L594
         mt = mt.annotate_globals(
             sampleType={
-                "genome": "WGS",
-                "exome": "WES",
-                "single_cell": "RNA",
-            }.get(sequencing_type, ""),
+                'genome': 'WGS',
+                'exome': 'WES',
+                'single_cell': 'RNA',
+            }.get(sequencing_type, ''),
         )
 
-    loguru.logger.info("Final Structure:")
+    loguru.logger.info('Final Structure:')
     mt.write(out_mt_path, overwrite=True)
-    loguru.logger.info(f"Written final matrix table into {out_mt_path}")
+    loguru.logger.info(f'Written final matrix table into {out_mt_path}')
 
 
 def cli_main():
@@ -311,11 +311,11 @@ def cli_main():
     CLI entrypoint
     """
     parser = ArgumentParser()
-    parser.add_argument("--input", required=True, help="Input MatrixTable to annotate")
-    parser.add_argument("--output", required=True, help="Output MatrixTable")
-    parser.add_argument("--vep", required=True, help="HT with VEP annotations")
-    parser.add_argument("--checkpoint", required=True, help="Checkpoint prefix")
-    parser.add_argument("--vqsr", required=False, help="Site-only VQSR VCF")
+    parser.add_argument('--input', required=True, help='Input MatrixTable to annotate')
+    parser.add_argument('--output', required=True, help='Output MatrixTable')
+    parser.add_argument('--vep', required=True, help='HT with VEP annotations')
+    parser.add_argument('--checkpoint', required=True, help='Checkpoint prefix')
+    parser.add_argument('--vqsr', required=False, help='Site-only VQSR VCF')
     args = parser.parse_args()
     annotate_cohort(
         mt_path=args.input,
@@ -326,5 +326,5 @@ def cli_main():
     )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     cli_main()
