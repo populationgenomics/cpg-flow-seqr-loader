@@ -16,6 +16,16 @@ from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
+'''
+Notes:
+This was originally written to run with a config file, and churn through variants of interest to produce 
+a pdf summary and a tsv file of significant results. It will be kept in the script directory in case we want to use
+or adapt it in future.
+
+
+max raw score is also associated with a position, i.e the most affected site in the 1MB window, would have been
+helpful to track that position and see if multiple variants hit the same position
+'''
 # This is a configurable parameter that can be set in the config file.
 # It determines the threshold for significance in variant scoring.
 THRESHOLD = config.config_retrieve(['alphagenome_params', 'sig_threshold'], default=0.99)
@@ -35,7 +45,7 @@ SCORER_CHOICES = [
 ]
 
 
-def pngs_to_pdf_streaming(directory, summary_text):
+def pngs_to_pdf_streaming(directory, summary_text, variant_max_scores):
     """
     Save PNG files from cloud storage directly to a PDF in streaming mode.
     Images are loaded one at a time, written immediately to PDF page by page.
@@ -79,6 +89,18 @@ def pngs_to_pdf_streaming(directory, summary_text):
             # Draw the filename as title above the image
             c.setFont('Helvetica-Bold', 14)
             c.drawCentredString(width / 2, height - 40, png_file.stem)
+
+            # Draw max_raw_score just below the image
+            variant_id = png_file.stem  # assuming the stem is a valid variant string like "chr1-123456-A-T"
+            try:
+                # Try to match the variant from the keys
+                variant_obj = next(v for v in variant_max_scores if str(v) == variant_id)
+                max_score = variant_max_scores[variant_obj]
+                c.setFont('Helvetica', 12)
+                c.drawCentredString(width / 2, y - 20, f'Max Raw Score: {max_score:.4f}')
+            except StopIteration:
+                c.setFont('Helvetica', 12)
+                c.drawCentredString(width / 2, y - 20, 'Max Raw Score: N/A')
             c.showPage()  # finalize page
 
         c.save()
@@ -123,21 +145,21 @@ def align_reference_for_indel(variant, interval, vout, length_alter: int):
     """Shift REF track in-place to align with ALT for indels (original logic)."""
     if length_alter > 0:  # deletion
         vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start) : (interval.end - interval.start - length_alter)
+        (variant.position - interval.start): (interval.end - interval.start - length_alter)
         ] = vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start + length_alter) : (interval.end - interval.start)
-        ]
+            (variant.position - interval.start + length_alter): (interval.end - interval.start)
+            ]
         vout.reference.splice_sites.values[  # noqa: PD011
-            (interval.end - interval.start - length_alter) : (interval.end - interval.start)
+        (interval.end - interval.start - length_alter): (interval.end - interval.start)
         ] = np.nan
     elif length_alter < 0:  # insertion
         vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start - length_alter) : (interval.end - interval.start)
+        (variant.position - interval.start - length_alter): (interval.end - interval.start)
         ] = vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start) : (interval.end - interval.start + length_alter)
-        ]
+            (variant.position - interval.start): (interval.end - interval.start + length_alter)
+            ]
         vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start) : (variant.position - interval.start - length_alter)
+        (variant.position - interval.start): (variant.position - interval.start - length_alter)
         ] = np.nan
     # SNV => no shift
 
@@ -149,7 +171,8 @@ def load_transcript_extractor(gtf_path: str):
     return transcript_utils.TranscriptExtractor(gtf_t)
 
 
-def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, significant_types: set[str]):  # noqa: PLR0915
+def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str,
+                        significant_types: set[str]):  # noqa: PLR0915
     """Plot the variant tracks for a given variant and save the figure.
     Args:
         variant (genome.Variant): The variant to plot.
@@ -159,7 +182,7 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, signi
         significant_types: set of significant types to plot, e.g. RNA_SEQ, SPLICE_JUNCTIONS, etc.
     """
     print(f'{variant!s} {significant_types}')
-    plot_size = 2**16
+    plot_size = 2 ** 10
     ref_output = vout.reference
     alt_output = vout.alternate
     ref_alt_colors = {'REF': 'dimgrey', 'ALT': 'red'}
@@ -293,7 +316,7 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, signi
                 interval=vout.reference.splice_sites.interval.resize(plot_size),
                 annotations=[plot_components.VariantAnnotation([variant], alpha=0.8)],
                 title=f'Predicted REF vs. ALT effects of variant in Kidney tissue\n'
-                f'Significant types: {", ".join(sorted(significant_types))}',
+                      f'Significant types: {", ".join(sorted(significant_types))}',
             )
             save_figure(outpath, plot)
             plt.close()
@@ -324,6 +347,10 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     # and a dictionary to track the number of significant variants per position
     sig_results_counter = 0
     sig_var_counter_dict: dict[tuple[str, int], int] = {}
+
+    # Add a dictionary to store max_raw_score for each variant
+    variant_max_scores = {}
+
     for var in variants:
         interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
         key = (var.chromosome, var.position)
@@ -340,6 +367,10 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
 
         filtered_scores = tidied_scores[tidied_scores['quantile_score'] >= THRESHOLD]
         filtered_scores = filtered_scores[filtered_scores['ontology_curie'].isin(ontology)]
+        max_raw_score = max(tidied_scores['raw_score'].values, default=0)
+
+        # Store max_raw_score for later use
+        variant_max_scores[var] = max_raw_score
 
         # If there are no scores above the threshold, skip to the next variant
         if filtered_scores.empty:
@@ -416,7 +447,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
         f'had significant scores above the threshold {THRESHOLD}.\n'
         f'Top 5 positions with significant variants:{top_five_str}'
     )
-    pngs_to_pdf_streaming(output_root, summary_text)
+    pngs_to_pdf_streaming(output_root, summary_text, variant_max_scores)
     print(
         f'{sig_results_counter} out of {len(variants)} variants had significant scores above the threshold {THRESHOLD}.'
     )

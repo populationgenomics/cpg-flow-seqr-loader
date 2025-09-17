@@ -25,7 +25,18 @@ def vcf_from_mt_subset(input_mt: str, output: str):
 
     mt = hl.read_matrix_table(input_mt)
     logger.info(f'Dataset MT dimensions: {mt.count()}')
-    hl.export_vcf(mt, output, tabix=True)
+
+    # filter to this sample's non-ref calls
+    mt = hl.variant_qc(mt)
+    mt = mt.filter_rows(mt.variant_qc.n_non_ref > 0)
+
+    # drop gvcf_info - a dict, can't sit in FORMAT
+    # only relevant when doing gVCF -> VDS -> MT
+    if 'gvcf_info' in mt.row:
+        mt = mt.drop('gvcf_info')
+    mt = mt.drop('variant_qc')
+
+    hl.export_vcf(mt, out_path, tabix=True)
     logger.info(f'Written {output}')
 
 
@@ -35,4 +46,4 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True, help='Path to write the VCF to')
     args = parser.parse_args()
 
-    vcf_from_mt_subset(input_mt=args.input, output=args.output)
+vcf_from_mt_subset(input_mt=args.input, output=args.output)

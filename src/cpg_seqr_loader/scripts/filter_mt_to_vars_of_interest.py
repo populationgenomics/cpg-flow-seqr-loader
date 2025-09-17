@@ -29,11 +29,11 @@ from cpg_utils.hail_batch import init_batch
 import hail as hl
 
 # Default values
-POP_AF = 0.01
+POP_AF = 0.001
 CALLSET_AF = 0.01
 GQ_THRESHOLD = 35
-CSQ = ['3_prime_UTR_variant', '5_prime_UTR_variant', 'splice_region_variant']
-
+CSQ = []
+gene_list=config.config_retrieve(['alphagenome_params', 'genes'], [])
 
 def filter_to_gene_ids(
     mt: hl.MatrixTable,
@@ -63,50 +63,54 @@ def main(
 
     mt = hl.read_matrix_table(mt_path)
 
-    if gene_list := config.config_retrieve(['alphagenome_params', 'genes'], []):
+    if gene_list:
         mt = filter_to_gene_ids(mt, gene_list)
+    else:
+        print("No gene IDs provided")
 
-        # Filter for rare variants within the callset
-        filtered_mt = mt.filter_rows(
-            mt.info.AF[0] < config.config_retrieve(['alphagenome_params', 'callset_af'], CALLSET_AF)
-        )
 
-        # Filter for rare variants in gnomAD
-        filtered_mt = filtered_mt.filter_rows(
-            config.config_retrieve(['alphagenome_params', 'pop_af'], POP_AF) > filtered_mt.gnomad_genomes.AF
-        )
+    # Filter for rare variants within the callset
+    filtered_mt = mt.filter_rows(
+        mt.info.AF[0] < config.config_retrieve(['alphagenome_params', 'callset_af'], CALLSET_AF)
+    )
 
-        filtered_mt = hl.variant_qc(filtered_mt)
+    # Filter for rare variants in gnomAD
+    filtered_mt = filtered_mt.filter_rows(
+        config.config_retrieve(['alphagenome_params', 'pop_af'], POP_AF) > filtered_mt.gnomad_genomes.AF
+    )
 
-        filtered_mt_gq = filtered_mt.filter_rows(
-            filtered_mt.variant_qc.gq_stats.mean
-            > config.config_retrieve(['alphagenome_params', 'gq_threshold'], GQ_THRESHOLD)
-        )
-        exploded = filtered_mt_gq.explode_rows(filtered_mt_gq.vep.transcript_consequences)
+    filtered_mt = hl.variant_qc(filtered_mt)
 
+    filtered_mt_gq = filtered_mt.filter_rows(
+        filtered_mt.variant_qc.gq_stats.mean
+        > config.config_retrieve(['alphagenome_params', 'gq_threshold'], GQ_THRESHOLD)
+    )
+    exploded = filtered_mt_gq.explode_rows(filtered_mt_gq.vep.transcript_consequences)
+
+    if config.config_retrieve(['alphagenome_params', 'consequences'], CSQ):
         interesting_consequences = hl.set(config.config_retrieve(['alphagenome_params', 'consequences'], CSQ))
         results = exploded.filter_rows(
             exploded.vep.transcript_consequences.consequence_terms.any(
                 lambda term: interesting_consequences.contains(term)
-            )
-        )
+            ))
+    else:
+        results = exploded
 
-        # only need the rows
-        results = results.rows()
 
-        selected = results.annotate(
-            CHROM=results.locus.contig,
-            POS=results.locus.position,
-            REF=results.alleles[0],
-            ALT=results.alleles[1],
-            FILTER_CRITERIA=hl.delimit(
-                interesting_consequences.intersection(hl.set(results.vep.transcript_consequences.consequence_terms))
-            ),
-        )
-        deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT', 'FILTER_CRITERIA').select().distinct()
+    # only need the rows
+    results = results.rows()
 
-        # Re-key by the selected fields to remove duplicates
-        deduped.export(output_path)
+    selected = results.annotate(
+        CHROM=results.locus.contig,
+        POS=results.locus.position,
+        REF=results.alleles[0],
+        ALT=results.alleles[1],
+        ANNOTATIONS=hl.delimit(results.vep.transcript_consequences.consequence_terms))
+
+    deduped = selected.key_by('CHROM', 'POS', 'REF', 'ALT', 'ANNOTATIONS').select().distinct()
+
+    # Re-key by the selected fields to remove duplicates
+    deduped.export(output_path)
 
 
 if __name__ == '__main__':
