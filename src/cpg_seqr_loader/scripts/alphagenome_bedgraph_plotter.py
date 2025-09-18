@@ -47,7 +47,6 @@ class OrganizationMode(Enum):
     BY_TRACK_TYPE = 'track_type'
 
 
-
 THRESHOLD = 0.01
 
 
@@ -679,7 +678,7 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_usage_track_generator = usage_gen
 
 
-def main(var_file: str, output_root: str, ontologies: list[str],api_key: str ,organization: str = 'variant'):
+def main(var_file: str, output_root: str, ontologies: list[str], api_key: str, organization: str = 'variant'):
     """Main function to process variants and generate genomic tracks.
 
     Orchestrates the entire pipeline: loads variants, filters by significance,
@@ -827,8 +826,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_root', help='Root output directory', required=True)
     parser.add_argument('--api_key', required=True, help='AlphaGenome API key')
     parser.add_argument(
-        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'],
-        help='Ontology terms'
+        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'], help='Ontology terms'
     )
     parser.add_argument(
         '--organization',
