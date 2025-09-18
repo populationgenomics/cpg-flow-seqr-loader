@@ -42,7 +42,7 @@ class OrganizationMode(Enum):
     BY_TRACK_TYPE = 'track_type'
 
 
-API_KEY = 'AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
+API_KEY = 'get yer own'
 THRESHOLD = 0.01
 
 
