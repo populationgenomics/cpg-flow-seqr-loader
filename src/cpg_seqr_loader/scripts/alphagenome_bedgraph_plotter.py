@@ -17,6 +17,7 @@ Required TSV columns: CHROM, POS, REF, ALT
 
 # ruff: noqa: PD011, PLR0915, ARG002
 import io
+import json
 import multiprocessing as mp
 from argparse import ArgumentParser
 from csv import DictReader
@@ -29,6 +30,10 @@ import pandas as pd
 from alphagenome.data import genome
 from alphagenome.models import dna_client, variant_scorers
 from cloudpathlib.anypath import to_anypath
+
+# Load from JSON file
+with open('src/ontology_to_biosample_mapping.json') as file:
+    ontology_to_biosample = json.load(file)
 
 
 class OrganizationMode(Enum):
@@ -140,8 +145,9 @@ class BedGraphWriter:
             variant_dir = self.bedgraph_dir / f'{variant!s}'
             variant_dir.mkdir(exist_ok=True)
 
-            # Create ontology directory within variant directory
-            ontology_dir = variant_dir / ontology
+            # Create ontology directory within variant directory using global ontology_to_biosample
+            ontology_dir_name = f'{ontology}:{ontology_to_biosample[ontology]}'
+            ontology_dir = variant_dir / ontology_dir_name
             ontology_dir.mkdir(exist_ok=True)
 
             # Create specific directory within variant directory
@@ -815,29 +821,18 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
     return all_generated_files
 
 
-#if __name__ == '__main__':
-#    parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
-#    parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
-#    parser.add_argument('--output_root', help='Root output directory', required=True)
-#    parser.add_argument('--ontology', nargs='+', default=['UBERON:0001134'], help='Ontology terms')
-#    parser.add_argument(
-#        '--organization',
-#        choices=['variant', 'track_type'],
-#        default='variant',
-#        help="Organization mode: 'variant' groups by variant, 'track_type' groups by reference/alternate/delta",
-#    )
-
-#    args = parser.parse_args()
-#    main(args.var_file, args.output_root, args.ontology, args.organization)
-
-
-if __name__ == "__main__":
-    parser = ArgumentParser(description="Generate BedGraph tracks for splice site variants")
-    parser.add_argument("--var_file", help="Path to variant TSV file",default="/Users/johass/PycharmProjects/cpg-flow-seqr-loader/TEST_VARS.tsv")
-    parser.add_argument("--output_root", help="Root output directory",default="/Users/johass/PycharmProjects/cpg-flow-seqr-loader")
-    parser.add_argument("--ontology", nargs="+", default=["UBERON:0002113"], help="Ontology terms" )#,required=True)
-    parser.add_argument("--organization", choices=["variant", "track_type"], default="variant",
-                        help="Organization mode: 'sample' groups by variant, 'track_type' groups by reference/alternate/delta")
-
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
+    parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
+    parser.add_argument('--output_root', help='Root output directory', required=True)
+    parser.add_argument(
+        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'], help='Ontology terms'
+    )
+    parser.add_argument(
+        '--organization',
+        choices=['variant', 'track_type'],
+        default='variant',
+        help="Organization mode: 'variant' groups by variant, 'track_type' groups by reference/alternate/delta",
+    )
     args = parser.parse_args()
     main(args.var_file, args.output_root, args.ontology, args.organization)
