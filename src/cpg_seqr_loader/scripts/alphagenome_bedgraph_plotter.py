@@ -47,7 +47,7 @@ class OrganizationMode(Enum):
     BY_TRACK_TYPE = 'track_type'
 
 
-API_KEY = 'get yer own'
+
 THRESHOLD = 0.01
 
 
@@ -679,7 +679,7 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_usage_track_generator = usage_gen
 
 
-def main(var_file: str, output_root: str, ontologies: list[str], organization: str = 'variant'):
+def main(var_file: str, output_root: str, ontologies: list[str],api_key: str ,organization: str = 'variant'):
     """Main function to process variants and generate genomic tracks.
 
     Orchestrates the entire pipeline: loads variants, filters by significance,
@@ -698,7 +698,7 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
         ValueError: If organization mode is invalid
         FileNotFoundError: If variant file doesn't exist
     """
-    model = dna_client.create(API_KEY)
+    model = dna_client.create(api_key)
     variants = load_variants_table(var_file)
     significant_results: pd.DataFrame | None = None
 
@@ -825,8 +825,10 @@ if __name__ == '__main__':
     parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
     parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
     parser.add_argument('--output_root', help='Root output directory', required=True)
+    parser.add_argument('--api_key', required=True, help='AlphaGenome API key')
     parser.add_argument(
-        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'], help='Ontology terms'
+        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'],
+        help='Ontology terms'
     )
     parser.add_argument(
         '--organization',
