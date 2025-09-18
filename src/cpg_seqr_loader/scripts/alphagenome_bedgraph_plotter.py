@@ -48,7 +48,7 @@ class OrganizationMode(Enum):
 
 
 THRESHOLD = 0.01
-
+api_key='AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
 
 def load_variants_table(path: str) -> list[genome.Variant]:
     """Load variants from a TSV file.
@@ -678,7 +678,7 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_usage_track_generator = usage_gen
 
 
-def main(var_file: str, output_root: str, ontologies: list[str], api_key: str, organization: str = 'variant'):
+def main(var_file: str, output_root: str, ontologies: list[str], organization: str = 'variant'):
     """Main function to process variants and generate genomic tracks.
 
     Orchestrates the entire pipeline: loads variants, filters by significance,
@@ -824,7 +824,6 @@ if __name__ == '__main__':
     parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
     parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
     parser.add_argument('--output_root', help='Root output directory', required=True)
-    parser.add_argument('--api_key', required=True, help='AlphaGenome API key')
     parser.add_argument(
         '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'], help='Ontology terms'
     )

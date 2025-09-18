@@ -36,7 +36,7 @@ def vcf_from_mt_subset(input_mt: str, output: str):
         mt = mt.drop('gvcf_info')
     mt = mt.drop('variant_qc')
 
-    hl.export_vcf(mt, out_path, tabix=True)
+    hl.export_vcf(mt, output, tabix=True)
     logger.info(f'Written {output}')
 
 

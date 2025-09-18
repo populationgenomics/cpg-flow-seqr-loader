@@ -2,7 +2,6 @@ import io
 import warnings
 from argparse import ArgumentParser
 from csv import DictReader
-from PIL import Image
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,11 +12,13 @@ from alphagenome.models import dna_client, variant_scorers
 from alphagenome.visualization import plot_components
 from cloudpathlib.anypath import to_anypath
 from cpg_utils import config
+from PIL import Image
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-'''
+# ruff: noqa:ARG001,B007,PLR0915,F841
+"""
 Script to read a TSV of variants, score them with AlphaGenome, and plot sashimi plots for significant ones.
 This is going to be archived in favor of the more integrated approach using Bedgraphs in IGV.
 This script generates separate sashimi plots for each strand if there are significant splice junction changes.
@@ -31,7 +32,7 @@ To DO:
 - Add error handling for file operations and API calls.
 - Optimize image merging for large numbers of variants.
 - Make sure gene window is appropriate for the variant type.
-'''
+"""
 
 # This is a configurable parameter that can be set in the config file.
 # It determines the threshold for significance in variant scoring.
@@ -159,6 +160,7 @@ def save_figure(path_logdir, figs):
         for img in images:
             img.close()
 
+
 def load_variants_table(path: str):
     """
     Load variants from a TSV file.
@@ -262,8 +264,6 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, signi
         strand_labels.append('Negative strand')
         axes_count += 1
 
-
-
     if len(alt_sashimi_pos.junctions) > 0:
         plot_chrom_pos = alt_sashimi_pos.junctions[0].chromosome
         plot_start_pos = alt_sashimi_pos.junctions[0].start - padding
@@ -286,25 +286,30 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, signi
             [
                 plot_components.TranscriptAnnotation(neg_transcripts),
                 plot_components.Sashimi(ref_sashimi_neg, ylabel_template='Reference (-)'),
-                plot_components.Sashimi(alt_sashimi_neg, ylabel_template='Alternate (-)')],
+                plot_components.Sashimi(alt_sashimi_neg, ylabel_template='Alternate (-)'),
+            ],
             interval=plot_interval_neg,
-            annotations=[plot_components.VariantAnnotation([variant])])
+            annotations=[plot_components.VariantAnnotation([variant])],
+        )
         plot2 = plot_components.plot(
-                [
+            [
                 plot_components.TranscriptAnnotation(pos_transcripts),
                 plot_components.Sashimi(ref_sashimi_pos, ylabel_template='Reference (+)'),
-                plot_components.Sashimi(alt_sashimi_pos, ylabel_template='Alternate (+)')],
+                plot_components.Sashimi(alt_sashimi_pos, ylabel_template='Alternate (+)'),
+            ],
             interval=plot_interval_pos,
-            annotations=[plot_components.VariantAnnotation([variant])])
-        plots=[plot1, plot2]
+            annotations=[plot_components.VariantAnnotation([variant])],
+        )
+        plots = [plot1, plot2]
     else:
         plot = plot_components.plot(
-            plot_elements[0],
-            interval=plot_intervals[0],
-            annotations=[plot_components.VariantAnnotation([variant])])
-        plots=[plot]
+            plot_elements[0], interval=plot_intervals[0], annotations=[plot_components.VariantAnnotation([variant])]
+        )
+        plots = [plot]
     save_figure(outpath, plots)
     plt.close()
+
+
 def main(input_variants: str, output_root: str, ontology: list[str], api_key: str):
     """
     Main function to read variants from a TSV file and score them.
@@ -323,9 +328,7 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     transcript_extractor = load_transcript_extractor(gtf)
     model = dna_client.create(api_key)
 
-    output_metadata = model.output_metadata(
-        dna_client.Organism.HOMO_SAPIENS
-    ).concatenate()
+    output_metadata = model.output_metadata(dna_client.Organism.HOMO_SAPIENS).concatenate()
 
     print(f'Loaded {len(variants)} variants from {input_variants!s}.')
     print(f'Using ontology terms: {ontology!s} with threshold {THRESHOLD}.')
@@ -431,13 +434,20 @@ def main(input_variants: str, output_root: str, ontology: list[str], api_key: st
     )
 
 
-
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('-i', help='Path to the input MatrixTable', default='/Users/johass/PycharmProjects/cpg-flow-seqr-loader/TEST_VARS.tsv')
-    parser.add_argument('--out', help='prefix to write output files to)' ,default='/Users/johass/PycharmProjects/cpg-flow-seqr-loader/src/test_out_sashimi_blood')
+    parser.add_argument(
+        '-i',
+        help='Path to the input MatrixTable',
+        default='/Users/johass/PycharmProjects/cpg-flow-seqr-loader/TEST_VARS.tsv',
+    )
+    parser.add_argument(
+        '--out',
+        help='prefix to write output files to)',
+        default='/Users/johass/PycharmProjects/cpg-flow-seqr-loader/src/test_out_sashimi_blood',
+    )
     parser.add_argument('--ontology', help='Ontology term to use for scoring', default=['UBERON:0001134'], nargs='+')
-    parser.add_argument('--api_key', help='API key to authenticate',  default='AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8')
+    parser.add_argument('--api_key', help='API key to authenticate', default='AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8')
 
     args = parser.parse_args()
     main(input_variants=args.i, output_root=args.out, ontology=args.ontology, api_key=args.api_key)

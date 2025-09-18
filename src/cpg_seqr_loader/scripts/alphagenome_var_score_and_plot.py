@@ -1,3 +1,4 @@
+# ruff: noqa: PLR0915
 import io
 import warnings
 from argparse import ArgumentParser
@@ -16,16 +17,16 @@ from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-'''
+"""
 Notes:
-This was originally written to run with a config file, and churn through variants of interest to produce 
+This was originally written to run with a config file, and churn through variants of interest to produce
 a pdf summary and a tsv file of significant results. It will be kept in the script directory in case we want to use
 or adapt it in future.
 
 
 max raw score is also associated with a position, i.e the most affected site in the 1MB window, would have been
 helpful to track that position and see if multiple variants hit the same position
-'''
+"""
 # This is a configurable parameter that can be set in the config file.
 # It determines the threshold for significance in variant scoring.
 THRESHOLD = config.config_retrieve(['alphagenome_params', 'sig_threshold'], default=0.99)
@@ -145,21 +146,21 @@ def align_reference_for_indel(variant, interval, vout, length_alter: int):
     """Shift REF track in-place to align with ALT for indels (original logic)."""
     if length_alter > 0:  # deletion
         vout.reference.splice_sites.values[  # noqa: PD011
-        (variant.position - interval.start): (interval.end - interval.start - length_alter)
+            (variant.position - interval.start) : (interval.end - interval.start - length_alter)
         ] = vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start + length_alter): (interval.end - interval.start)
-            ]
+            (variant.position - interval.start + length_alter) : (interval.end - interval.start)
+        ]
         vout.reference.splice_sites.values[  # noqa: PD011
-        (interval.end - interval.start - length_alter): (interval.end - interval.start)
+            (interval.end - interval.start - length_alter) : (interval.end - interval.start)
         ] = np.nan
     elif length_alter < 0:  # insertion
         vout.reference.splice_sites.values[  # noqa: PD011
-        (variant.position - interval.start - length_alter): (interval.end - interval.start)
+            (variant.position - interval.start - length_alter) : (interval.end - interval.start)
         ] = vout.reference.splice_sites.values[  # noqa: PD011
-            (variant.position - interval.start): (interval.end - interval.start + length_alter)
-            ]
+            (variant.position - interval.start) : (interval.end - interval.start + length_alter)
+        ]
         vout.reference.splice_sites.values[  # noqa: PD011
-        (variant.position - interval.start): (variant.position - interval.start - length_alter)
+            (variant.position - interval.start) : (variant.position - interval.start - length_alter)
         ] = np.nan
     # SNV => no shift
 
@@ -171,8 +172,7 @@ def load_transcript_extractor(gtf_path: str):
     return transcript_utils.TranscriptExtractor(gtf_t)
 
 
-def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str,
-                        significant_types: set[str]):  # noqa: PLR0915
+def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str, significant_types: set[str]):
     """Plot the variant tracks for a given variant and save the figure.
     Args:
         variant (genome.Variant): The variant to plot.
@@ -182,7 +182,7 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str,
         significant_types: set of significant types to plot, e.g. RNA_SEQ, SPLICE_JUNCTIONS, etc.
     """
     print(f'{variant!s} {significant_types}')
-    plot_size = 2 ** 10
+    plot_size = 2**10
     ref_output = vout.reference
     alt_output = vout.alternate
     ref_alt_colors = {'REF': 'dimgrey', 'ALT': 'red'}
@@ -316,7 +316,7 @@ def plot_variant_tracks(variant, vout, transcript_extractor, outpath: str,
                 interval=vout.reference.splice_sites.interval.resize(plot_size),
                 annotations=[plot_components.VariantAnnotation([variant], alpha=0.8)],
                 title=f'Predicted REF vs. ALT effects of variant in Kidney tissue\n'
-                      f'Significant types: {", ".join(sorted(significant_types))}',
+                f'Significant types: {", ".join(sorted(significant_types))}',
             )
             save_figure(outpath, plot)
             plt.close()
