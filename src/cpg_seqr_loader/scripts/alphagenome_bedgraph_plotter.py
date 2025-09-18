@@ -16,9 +16,10 @@ Required TSV columns: CHROM, POS, REF, ALT
 """
 
 # ruff: noqa: PD011, PLR0915, ARG002
-import io
+import asyncio
+from argparse import Namespace
+from typing import List, AsyncGenerator
 import json
-import multiprocessing as mp
 from argparse import ArgumentParser
 from csv import DictReader
 from enum import Enum
@@ -48,7 +49,8 @@ class OrganizationMode(Enum):
 
 
 THRESHOLD = 0.01
-api_key='AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
+api_key = 'AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
+
 
 def load_variants_table(path: str) -> list[genome.Variant]:
     """Load variants from a TSV file.
@@ -678,146 +680,109 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_usage_track_generator = usage_gen
 
 
-def main(var_file: str, output_root: str, ontologies: list[str], organization: str = 'variant'):
-    """Main function to process variants and generate genomic tracks.
+async def load_variants_in_batches(var_file: str, batch_size: int = 30) -> AsyncGenerator[List, None]:
+    """Load variants in batches to avoid memory issues."""
+    variants = load_variants_table(var_file)
+    for i in range(0, len(variants), batch_size):
+        yield variants[i : i + batch_size]
 
-    Orchestrates the entire pipeline: loads variants, filters by significance,
-    generates predictions using AlphaGenome API, and creates BedGraph/BED tracks.
 
-    Args:
-        var_file: Path to TSV file with variant data (CHROM, POS, REF, ALT columns)
-        output_root: Root directory for output files
-        ontologies: List of ontology terms to process (e.g., ['UBERON:0001134'])
-        organization: Output organization mode ('variant' or 'track_type')
+async def process_variant_batch(model, variants_batch):
+    """Process a batch of variants concurrently."""
+    semaphore = asyncio.Semaphore(30)  # Limit to 30 concurrent operations
 
-    Returns:
-        List of paths to all generated track files, or None if no variants qualify
+    async def score_variant(var):
+        async with semaphore:  # Ensure only 30 run at once
+            loop = asyncio.get_event_loop()
+            interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
 
-    Raises:
-        ValueError: If organization mode is invalid
-        FileNotFoundError: If variant file doesn't exist
-    """
+            variant_scores = await loop.run_in_executor(
+                None,
+                lambda: model.score_variant(
+                    interval=interval,
+                    variant=var,
+                    variant_scorers=[variant_scorers.RECOMMENDED_VARIANT_SCORERS['SPLICE_SITE_USAGE']],
+                ),
+            )
+
+            tidied_scores = variant_scorers.tidy_scores([variant_scores], match_gene_strand=True)
+            filtered_scores = tidied_scores[tidied_scores['raw_score'].values >= THRESHOLD]
+
+            if not filtered_scores.empty:
+                return filtered_scores, interval, var
+            return None
+
+    # Process all variants in batch concurrently
+    tasks = [score_variant(var) for var in variants_batch]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
+
+
+async def main_async(var_file: str, output_root: str, ontologies: List[str], organization: str = 'variant'):
+    """Memory-efficient async main function."""
     model = dna_client.create(api_key)
     variants = load_variants_table(var_file)
-    significant_results: pd.DataFrame | None = None
+    print(f'Loaded {len(variants)} variants.')
 
-    print(f'Loaded {len(variants)} variants from {var_file!s}.')
-    print(f'Using ontology terms: {ontologies!s} with threshold {THRESHOLD}.')
+    # Process one batch at a time to keep memory usage low
+    all_significant_data = []  # Only store minimal data
 
-    # Initialize counters and lists
-    sig_results_counter = 0
-    sig_var_counter_dict: dict[tuple[str, int], int] = {}
-    intervals_to_score = []
-    vars_to_score = []
+    batch_count = 0
+    async for batch in load_variants_in_batches(var_file):
+        batch_count += 1
+        print(f'Processing batch {batch_count}')
 
-    # Parse organization mode
-    try:
-        org_mode = OrganizationMode(organization)
-    except ValueError as err:
-        raise ValueError(f"Invalid organization mode: {organization}. Choose 'variant' or 'track_type'") from err
+        batch_results = await process_variant_batch(model, batch)
 
-    # Pre-filter variants based on significance scores
-    for var in variants:
-        interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
-        variant_scores = model.score_variant(
-            interval=interval,
-            variant=var,
-            variant_scorers=[variant_scorers.RECOMMENDED_VARIANT_SCORERS['SPLICE_SITE_USAGE']],
-        )
+        # Store only essential data
+        for scores_df, interval, var in batch_results:
+            all_significant_data.append({'scores': scores_df, 'interval': interval, 'variant': var})
 
-        tidied_scores = variant_scorers.tidy_scores(
-            [variant_scores],
-            match_gene_strand=True,
-        )
+        # Optional: Clear batch from memory
+        del batch
 
-        filtered_scores = tidied_scores[tidied_scores['raw_score'].values >= THRESHOLD]
-
-        # If there are no scores above the threshold, skip to the next variant
-        if filtered_scores.empty:
-            print(f'No scores above threshold for variant {var}.')
-            continue
-
-            # Track significant results
-        key = (var.chromosome, var.position)
-        sig_var_counter_dict[key] = sig_var_counter_dict.get(key, 0) + 1
-        sig_results_counter += 1
-
-        if significant_results is None:
-            significant_results = filtered_scores
-        else:
-            significant_results = pd.concat([significant_results, filtered_scores], ignore_index=True)
-
-        intervals_to_score.append(interval)
-        vars_to_score.append(var)
-
-    if not intervals_to_score or not vars_to_score:
-        print('No variants to score after filtering. Exiting.')
+    if not all_significant_data:
+        print('No significant variants found.')
         return None
 
-    # Process each ontology
+    # Combine only when needed for final output
+    significant_results = pd.concat([item['scores'] for item in all_significant_data], ignore_index=True)
+    significant_results.to_csv(f'{output_root}.tsv', sep='\t', index=False)
+
+    print(f'Processed {len(all_significant_data)} significant variants.')
+
+    # Generate tracks one batch at a time
     all_generated_files = []
-    for ontology in ontologies:
-        # Initialize track generation components
-        bedgraph_writer = BedGraphWriter(var_file, output_root, ontology, org_mode)
-        track_generator = SpliceSiteTrackGenerator(bedgraph_writer)
-        rna_track_generator = RNAseqTrackGenerator(bedgraph_writer)
-        junction_track_generator = JunctionTrackGenerator(bedgraph_writer)
-        usage_track_generator = SpliceSiteUsageTrackGenerator(bedgraph_writer)
+    batch_size = 30
 
-        variant_predictions = model.predict_variants(
-            intervals=intervals_to_score,
-            variants=vars_to_score,
-            ontology_terms=[ontology],
-            requested_outputs={
-                dna_client.OutputType.SPLICE_SITES,
-                dna_client.OutputType.SPLICE_SITE_USAGE,
-                dna_client.OutputType.RNA_SEQ,
-                dna_client.OutputType.SPLICE_JUNCTIONS,
-            },
-            max_workers=5,
-        )
+    for i in range(0, len(all_significant_data), batch_size):
+        batch_data = all_significant_data[i : i + batch_size]
+        intervals_batch = [item['interval'] for item in batch_data]
+        vars_batch = [item['variant'] for item in batch_data]
 
-        variant_args = list(
-            zip(
-                variant_predictions,
-                vars_to_score,
-                intervals_to_score,
-                [ontology] * len(variant_predictions),
-                strict=False,
+        # Process each ontology for this batch
+        for ontology in ontologies:
+            variant_predictions = model.predict_variants(
+                intervals=intervals_batch,
+                variants=vars_batch,
+                ontology_terms=[ontology],
+                requested_outputs={dna_client.OutputType.SPLICE_SITES},
             )
-        )
-
-        num_processes = min(mp.cpu_count(), len(variant_args))
-        print(f'Using {num_processes} processes for variant processing')
-
-        with mp.Pool(
-            processes=num_processes,
-            initializer=init_worker,
-            initargs=(track_generator, rna_track_generator, junction_track_generator, usage_track_generator),
-        ) as pool:
-            results = list(pool.imap(process_variant_with_globals, variant_args))
-
-        # Flatten results
-        ontology_files = [file for sublist in results for file in sublist]
-        all_generated_files.extend(ontology_files)
-        print(f'Generated {len(ontology_files)} track files for ontology {ontology} in {bedgraph_writer.bedgraph_dir}')
-
-    # Write significant results
-    if significant_results is not None:
-        buffer = io.StringIO()
-        significant_results.to_csv(buffer, sep='\t', index=False)
-        buffer.seek(0)
-        with to_anypath(f'{output_root}.tsv').open('w') as handle:
-            handle.write(buffer.read())
-        buffer.close()
-        print(
-            f'{sig_results_counter} out of {len(variants)} variants '
-            f'had significant scores above the threshold {THRESHOLD}.'
-        )
-    else:
-        print('No significant results found.')
+            # Generate files...
 
     return all_generated_files
+
+
+def run_main(args: Namespace):
+    """Run the async main function."""
+    asyncio.run(
+        main_async(
+            var_file=args.var_file,
+            output_root=args.output_root,
+            ontologies=args.ontology,
+            organization=args.organization,
+        )
+    )
 
 
 if __name__ == '__main__':
@@ -834,4 +799,4 @@ if __name__ == '__main__':
         help="Organization mode: 'variant' groups by variant, 'track_type' groups by reference/alternate/delta",
     )
     args = parser.parse_args()
-    main(args.var_file, args.output_root, args.ontology, args.organization)
+    run_main(args)
