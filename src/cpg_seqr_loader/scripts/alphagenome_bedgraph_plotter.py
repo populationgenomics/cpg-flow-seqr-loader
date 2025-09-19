@@ -206,6 +206,14 @@ class BedGraphWriter:
 
         return output_path
 
+    def _create_header(self, interval) -> list[str]:
+        """Create BedGraph header with browser settings."""
+        return [
+            f'browser position {interval.chromosome}:{interval.start}-{interval.end}',
+            'browser hide all',
+            'browser pack refGene',
+        ]
+
     def _create_track_line(self, track_name: str, track_type: str = 'reference') -> str:
         """Create track definition line with styling."""
         # Get colors based on track type
@@ -222,35 +230,13 @@ class BedGraphWriter:
             f'altColor={alt_color}\n'
         )
 
-    def _compress_values(self, values: np.ndarray, chrom: str, start: int) -> list[tuple[str, int, int, float]]:
-        """Compress adjacent similar values into regions to reduce file size.
-
-        Combines consecutive positions with similar values (within 2% of data range)
-        into single regions, significantly reducing file sizes while preserving
-        visual fidelity.
-
-        Args:
-            values: Array of values to compress
-            chrom: Chromosome name
-            start: Starting genomic position
-
-        Returns:
-            List of tuples: (chromosome, start, end, value) for each region
-        """
+    def _compress_values(self, values, chrom: str, start: int) -> list[tuple[str, int, int, float]]:
+        """Compress adjacent similar values into regions."""
         if len(values) == 0:
             return []
 
-        # Handle all NaN case
-        if np.all(np.isnan(values)):
-            return []
-
-        # Calculate compression threshold
-        valid_values = values[~np.isnan(values)]
-        if len(valid_values) == 0:
-            return []
-
-        data_range = np.nanmax(valid_values) - np.nanmin(valid_values)
-        min_delta = data_range * 0.02 if data_range > 0 else 1e-10
+        data_range = np.nanmax(values) - np.nanmin(values)
+        min_delta = data_range * 0.02
 
         current_region_start = start
         current_region_value = values[0]
@@ -262,17 +248,14 @@ class BedGraphWriter:
                 continue
 
             if abs(value - current_region_value) > min_delta:
-                if not np.isnan(current_region_value):
-                    rows_for_file.append((chrom, current_region_start, position, current_region_value))
+                rows_for_file.append((chrom, current_region_start, position, current_region_value))
                 current_region_start = position
                 current_region_value = value
 
             final_pos = position
 
         # Add final region
-        if not np.isnan(current_region_value):
-            rows_for_file.append((chrom, current_region_start, final_pos + 1, current_region_value))
-
+        rows_for_file.append((chrom, current_region_start, final_pos + 1, current_region_value))
         return rows_for_file
 
 
