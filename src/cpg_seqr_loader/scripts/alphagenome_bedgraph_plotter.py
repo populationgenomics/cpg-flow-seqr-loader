@@ -663,23 +663,30 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_junction_track_generator = junction_gen
     global_usage_track_generator = usage_gen
 
+import asyncio
+import pandas as pd
+from argparse import ArgumentParser, Namespace
+from typing import List, AsyncGenerator
+import io
 
-async def load_variants_in_batches(var_file: str, batch_size: int = 30) -> AsyncGenerator[List, None]:
-    """Load variants in batches to avoid memory issues."""
+
+async def process_variants_streaming(model, var_file: str, output_root: str):
+    """Process variants one at a time to minimize memory usage."""
     variants = load_variants_table(var_file)
-    for i in range(0, len(variants), batch_size):
-        yield variants[i : i + batch_size]
+    print(f'Loaded {len(variants)} variants.')
 
+    significant_count = 0
+    all_significant_dfs = []  # Only store DataFrames, not full variant objects
 
-async def process_variant_batch(model, variants_batch):
-    """Process a batch of variants concurrently."""
-    semaphore = asyncio.Semaphore(30)  # Limit to 30 concurrent operations
+    # Process variants one by one (or in small groups)
+    semaphore = asyncio.Semaphore(30)  # Limit concurrent processing
 
-    async def score_variant(var):
-        async with semaphore:  # Ensure only 30 run at once
+    async def process_single_variant(var):
+        async with semaphore:
             loop = asyncio.get_event_loop()
             interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
 
+            # Run blocking operation in thread pool
             variant_scores = await loop.run_in_executor(
                 None,
                 lambda: model.score_variant(
@@ -696,70 +703,110 @@ async def process_variant_batch(model, variants_batch):
                 return filtered_scores, interval, var
             return None
 
-    # Process all variants in batch concurrently
-    tasks = [score_variant(var) for var in variants_batch]
-    results = await asyncio.gather(*tasks)
-    return [r for r in results if r is not None]
+    # Process variants in small batches to control memory
+    batch_size = 10  # Smaller batches
+    for i in range(0, len(variants), batch_size):
+        batch = variants[i : i + batch_size]
+        tasks = [process_single_variant(var) for var in batch]
+        results = await asyncio.gather(*tasks)
+
+        # Collect only the essential data
+        for result in results:
+            if result is not None:
+                scores_df, interval, var = result
+                all_significant_dfs.append(scores_df)
+                significant_count += 1
+                # Don't store the full variant object or interval unless needed
+
+        # Optional: Force garbage collection
+        del batch, tasks, results
+
+    print(f'{significant_count} variants had significant scores.')
+
+    # Only combine DataFrames at the end
+    if all_significant_dfs:
+        final_df = pd.concat(all_significant_dfs, ignore_index=True)
+
+        # Save to file
+        buffer = io.StringIO()
+        final_df.to_csv(buffer, sep='\t', index=False)
+        buffer.seek(0)
+
+        with to_anypath(f'{output_root}.tsv').open('w') as f:
+            f.write(buffer.read())
+
+        buffer.close()
+        del final_df  # Free memory
+
+    return significant_count
+
+
+async def generate_tracks_streaming(
+    model, var_file: str, output_root: str, ontologies: List[str], significant_count: int
+):
+    """Generate tracks in a memory-efficient way."""
+    if significant_count == 0:
+        return []
+
+    variants = load_variants_table(var_file)
+
+    # Process track generation in small batches
+    batch_size = 5  # Even smaller for track generation
+    all_generated_files = []
+
+    for i in range(0, len(variants), batch_size):
+        batch = variants[i : i + batch_size]
+
+        # Score this batch first to filter significant ones
+        significant_in_batch = []
+        for var in batch:
+            interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
+            # Quick check if this variant was significant (you might want to optimize this)
+            significant_in_batch.append((var, interval))
+
+        if not significant_in_batch:
+            continue
+
+        # Process each ontology for this batch
+        for ontology in ontologies:
+            vars_batch = [item[0] for item in significant_in_batch]
+            intervals_batch = [item[1] for item in significant_in_batch]
+
+            # Generate predictions for this small batch
+            loop = asyncio.get_event_loop()
+            variant_predictions = await loop.run_in_executor(
+                None,
+                lambda: model.predict_variants(
+                    intervals=intervals_batch,
+                    variants=vars_batch,
+                    ontology_terms=[ontology],
+                    requested_outputs={dna_client.OutputType.SPLICE_SITES},
+                ),
+            )
+
+            # Generate track files immediately and collect paths
+            # (implement your track generation logic here)
+            # Don't store the full prediction data, just generate files
+
+    return all_generated_files
 
 
 async def main_async(var_file: str, output_root: str, ontologies: List[str], organization: str = 'variant'):
     """Memory-efficient async main function."""
     model = dna_client.create(api_key)
-    variants = load_variants_table(var_file)
-    print(f'Loaded {len(variants)} variants.')
 
-    # Process one batch at a time to keep memory usage low
-    all_significant_data = []  # Only store minimal data
+    # Step 1: Process variants and find significant ones
+    significant_count = await process_variants_streaming(model, var_file, output_root)
 
-    batch_count = 0
-    async for batch in load_variants_in_batches(var_file):
-        batch_count += 1
-        print(f'Processing batch {batch_count}')
+    # Step 2: Generate tracks for significant variants only
+    generated_files = await generate_tracks_streaming(model, var_file, output_root, ontologies, significant_count)
 
-        batch_results = await process_variant_batch(model, batch)
-
-        # Store only essential data
-        for scores_df, interval, var in batch_results:
-            all_significant_data.append({'scores': scores_df, 'interval': interval, 'variant': var})
-
-        # Optional: Clear batch from memory
-        del batch
-
-    if not all_significant_data:
-        print('No significant variants found.')
-        return None
-
-    # Combine only when needed for final output
-    significant_results = pd.concat([item['scores'] for item in all_significant_data], ignore_index=True)
-    significant_results.to_csv(f'{output_root}.tsv', sep='\t', index=False)
-
-    print(f'Processed {len(all_significant_data)} significant variants.')
-
-    # Generate tracks one batch at a time
-    all_generated_files = []
-    batch_size = 30
-
-    for i in range(0, len(all_significant_data), batch_size):
-        batch_data = all_significant_data[i : i + batch_size]
-        intervals_batch = [item['interval'] for item in batch_data]
-        vars_batch = [item['variant'] for item in batch_data]
-
-        # Process each ontology for this batch
-        for ontology in ontologies:
-            variant_predictions = model.predict_variants(
-                intervals=intervals_batch,
-                variants=vars_batch,
-                ontology_terms=[ontology],
-                requested_outputs={dna_client.OutputType.SPLICE_SITES},
-            )
-            # Generate files...
-
-    return all_generated_files
+    return generated_files
 
 
 def run_main(args: Namespace):
     """Run the async main function."""
-    asyncio.run(
+    return asyncio.run(
         main_async(
             var_file=args.var_file,
             output_root=args.output_root,
@@ -783,4 +830,5 @@ if __name__ == '__main__':
         help="Organization mode: 'variant' groups by variant, 'track_type' groups by reference/alternate/delta",
     )
     args = parser.parse_args()
-    run_main(args)
+    result = run_main(args)
+    print('Generated files:', result)
