@@ -16,23 +16,23 @@ Required TSV columns: CHROM, POS, REF, ALT
 """
 
 # ruff: noqa: PD011, PLR0915, ARG002
-
+import io
 import json
+import multiprocessing as mp
+from argparse import ArgumentParser
 from csv import DictReader
 from enum import Enum
+from pathlib import Path
+from typing import Any
+
 import numpy as np
+import pandas as pd
 from alphagenome.data import genome
 from alphagenome.models import dna_client, variant_scorers
 from cloudpathlib.anypath import to_anypath
-import asyncio
-import pandas as pd
-from argparse import ArgumentParser, Namespace
-from typing import List
-import io
-
 
 # Load from JSON file
-with to_anypath('src/ontology_to_biosample_mapping.json').open() as file:
+with open('src/ontology_to_biosample_mapping.json') as file:
     ontology_to_biosample = json.load(file)
 
 
@@ -48,8 +48,7 @@ class OrganizationMode(Enum):
 
 
 THRESHOLD = 0.01
-api_key = 'AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
-
+api_key='AIzaSyDYx7VMDPepU7qeJOm7i-AVm9GsrV-BbW8'
 
 def load_variants_table(path: str) -> list[genome.Variant]:
     """Load variants from a TSV file.
@@ -83,6 +82,15 @@ def load_variants_table(path: str) -> list[genome.Variant]:
             )
     return variants
 
+def to_anypath(path_str):
+    """A helper to return a GCS blob or local file handle depending on the path."""
+    if path_str.startswith("gs://"):
+        from gcsfs import GCSFileSystem
+        fs = GCSFileSystem()
+        return fs.open(path_str, 'w')
+    else:
+        from pathlib import Path
+        return Path(path_str).open('w')
 
 class BedGraphWriter:
     """Handles creation and writing of BedGraph files with track metadata.
@@ -91,7 +99,7 @@ class BedGraphWriter:
     formatted BedGraph files with browser-compatible headers and styling.
 
     Attributes:
-        output_root: Root directory for all output files
+        output_root: Root directory for all output files (can be a GCS URI)
         organization_mode: How to organize output files (by variant or track type)
         bedgraph_dir: Main directory for BedGraph files
         track_colors: Color mapping for different track types
@@ -104,15 +112,15 @@ class BedGraphWriter:
         ontology: str,
         organization_mode: OrganizationMode = OrganizationMode.BY_VARIANT,
     ):
-        self.output_root = to_anypath(output_root)
+        self.output_root = output_root.rstrip('/')
         self.organization_mode = organization_mode
         self.default_view_limits = '-1:1'
         self.positive_color = '0,0,255'  # blue
         self.negative_color = '220,20,60'  # red
 
-        # Create main bedgraph directory
-        var_file_path = to_anypath(var_file)
-        self.bedgraph_dir = self.output_root / var_file_path.stem
+        # Derive base directory name from var_file stem
+        var_stem = var_file.split('/')[-1].split('.')[0]
+        self.bedgraph_dir = f"{self.output_root}/{var_stem}"
 
         # Color mapping for track types
         self.track_colors = {
@@ -121,18 +129,8 @@ class BedGraphWriter:
             'delta': ('255,192,0', '255,192,0'),  # yellow
         }
 
-    """Initialize BedGraphWriter with output configuration.
-
-    Args:
-        var_file: Path to variant file (used for directory naming)
-        output_root: Root directory for all output files
-        ontology: Ontology term being processed
-        organization_mode: How to organize output files
-    """
-
-    def get_output_path(self, variant, track_name: str, track_type: str, ontology: str, output_type: str):
+    def get_output_path(self, variant, track_name: str, track_type: str, ontology: str, output_type: str) -> str:
         """Determine output path based on organization mode and output type."""
-        # Define directory structure mappings
         dir_mappings = {
             'rna_seq': 'RNAseq',
             'splice_sites': 'splice_sites',
@@ -142,14 +140,10 @@ class BedGraphWriter:
 
         if self.organization_mode == OrganizationMode.BY_VARIANT:
             # Group by sample (variant)
-            variant_dir = self.bedgraph_dir / f'{variant!s}'
-
-            # Create ontology directory within variant directory
+            variant_dir = f"{self.bedgraph_dir}/{variant!s}"
             ontology_dir_name = f'{ontology}:{ontology_to_biosample[ontology]}'
-            ontology_dir = variant_dir / ontology_dir_name
-
-            # Create specific directory within variant directory
-            specific_dir = ontology_dir / dir_mappings.get(output_type, output_type)
+            ontology_dir = f"{variant_dir}/{ontology_dir_name}"
+            specific_dir = f"{ontology_dir}/{dir_mappings.get(output_type, output_type)}"
 
             if output_type == 'junctions':
                 filename = f'{track_type}_{track_name}.bed'
@@ -159,11 +153,10 @@ class BedGraphWriter:
                     if output_type == 'rna_seq'
                     else f'{track_type}_{track_name}.bedgraph'
                 )
-            return specific_dir / filename
+            return f"{specific_dir}/{filename}"
 
         # BY_TRACK_TYPE
-        # Group by track type (reference, alternate, delta)
-        track_type_dir = self.bedgraph_dir / track_type
+        track_type_dir = f"{self.bedgraph_dir}/{track_type}"
 
         if output_type == 'junctions':
             filename = f'{variant!s}_junctions_{track_name}.bed'
@@ -173,24 +166,42 @@ class BedGraphWriter:
                 if output_type == 'rna_seq'
                 else f'{variant!s}_{track_name}.bedgraph'
             )
-        return track_type_dir / filename
+        return f"{track_type_dir}/{filename}"
 
     def write_bedgraph(
         self,
-        variant: any,
-        interval: any,
+        variant: Any,
+        interval: Any,
         values: np.ndarray,
         track_name: str,
         output_type: str,
         ontology: str,
         track_type: str = 'reference',
-    ):
-        """Write a complete BedGraph file with header and data."""
+    ) -> str:
+        """Write a complete BedGraph file with header and data.
+
+        Creates a properly formatted BedGraph file with browser directives,
+        track definition line, and compressed genomic data.
+
+        Args:
+            variant: Variant being analyzed
+            interval: Genomic interval for the data
+            values: Array of numeric values for each position
+            track_name: Display name for the track
+            output_type: Type of output (rna_seq, splice_sites, etc.)
+            ontology: Ontology term for organization
+            track_type: Track category (reference, alternate, delta)
+
+        Returns:
+            Path to the created BedGraph file
+
+        Raises:
+            IOError: If file cannot be written
+        """
         output_path = self.get_output_path(variant, track_name, track_type, ontology, output_type)
         compressed_data = self._compress_values(values, interval.chromosome, interval.start)
 
-        # For cloud storage, just write the file - "directories" are created automatically
-        with to_anypath(output_path).open('w') as f:
+        with to_anypath(output_path) as f:
             # Write header
             for line in self._create_header(interval):
                 f.write(f'{line}\n')
@@ -203,7 +214,6 @@ class BedGraphWriter:
                 f.write(f'{chrom}\t{start}\t{end}\t{value:.6f}\n')
 
         return output_path
-
     def _create_header(self, interval) -> list[str]:
         """Create BedGraph header with browser settings."""
         return [
@@ -349,7 +359,7 @@ class RNAseqTrackGenerator(BaseTrackGenerator):
     available RNA-seq datasets from the AlphaGenome predictions.
     """
 
-    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list:
+    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list[Path]:
         """Generate all RNA-seq tracks for a variant.
 
         Creates reference, alternate, and delta tracks for each RNA-seq
@@ -383,18 +393,18 @@ class RNAseqTrackGenerator(BaseTrackGenerator):
 
         return generated_files
 
-    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate reference sequence track."""
         ref_series = self._get_values_array(scores.reference.rna_seq.values, index)
         return self.writer.write_bedgraph(variant, interval, ref_series, track_name, 'rna_seq', ontology, 'reference')
 
-    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate alternate sequence track with indel realignment."""
         alt_raw = [val[index] for val in scores.alternate.rna_seq.values]
         alt_series = self._process_track_values(variant, interval, alt_raw)
         return self.writer.write_bedgraph(variant, interval, alt_series, track_name, 'rna_seq', ontology, 'alternate')
 
-    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate delta (difference) track."""
         ref_series = self._get_values_array(scores.reference.rna_seq.values, index)
         alt_raw = [val[index] for val in scores.alternate.rna_seq.values]
@@ -406,7 +416,7 @@ class RNAseqTrackGenerator(BaseTrackGenerator):
 class SpliceSiteUsageTrackGenerator(BaseTrackGenerator):
     """Generates splice site usage tracks for variants."""
 
-    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list:
+    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list[Path]:
         """Generate reference, alternate, and delta tracks for all splice site usage."""
         if not hasattr(scores.reference, 'splice_sites'):
             return []
@@ -427,14 +437,14 @@ class SpliceSiteUsageTrackGenerator(BaseTrackGenerator):
 
         return generated_files
 
-    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate reference sequence track."""
         ref_series = self._get_values_array(scores.reference.splice_sites.values, index)
         return self.writer.write_bedgraph(
             variant, interval, ref_series, track_name, 'splice_site_usage', ontology, 'reference'
         )
 
-    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate alternate sequence track with indel realignment."""
         alt_raw = [val[index] for val in scores.alternate.splice_sites.values]
         alt_series = self._process_track_values(variant, interval, alt_raw)
@@ -442,7 +452,7 @@ class SpliceSiteUsageTrackGenerator(BaseTrackGenerator):
             variant, interval, alt_series, track_name, 'splice_site_usage', ontology, 'alternate'
         )
 
-    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate delta (difference) track."""
         ref_series = self._get_values_array(scores.reference.splice_sites.values, index)
         alt_raw = [val[index] for val in scores.alternate.splice_sites.values]
@@ -456,7 +466,7 @@ class SpliceSiteUsageTrackGenerator(BaseTrackGenerator):
 class SpliceSiteTrackGenerator(BaseTrackGenerator):
     """Generates splice site tracks for variants."""
 
-    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list:
+    def generate_all_tracks(self, variant, interval, scores, ontology: str) -> list[Path]:
         """Generate reference, alternate, and delta tracks for all splice sites."""
         if not hasattr(scores.reference, 'splice_sites'):
             return []
@@ -477,14 +487,14 @@ class SpliceSiteTrackGenerator(BaseTrackGenerator):
 
         return generated_files
 
-    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_reference_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate reference sequence track."""
         ref_series = self._get_values_array(scores.reference.splice_sites.values, index)
         return self.writer.write_bedgraph(
             variant, interval, ref_series, track_name, 'splice_sites', ontology, 'reference'
         )
 
-    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_alternate_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate alternate sequence track with indel realignment."""
         alt_raw = [val[index] for val in scores.alternate.splice_sites.values]
         alt_series = self._process_track_values(variant, interval, alt_raw)
@@ -492,7 +502,7 @@ class SpliceSiteTrackGenerator(BaseTrackGenerator):
             variant, interval, alt_series, track_name, 'splice_sites', ontology, 'alternate'
         )
 
-    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str):
+    def _generate_delta_track(self, variant, interval, scores, index: int, track_name: str, ontology: str) -> Path:
         """Generate delta (difference) track."""
         ref_series = self._get_values_array(scores.reference.splice_sites.values, index)
         alt_raw = [val[index] for val in scores.alternate.splice_sites.values]
@@ -513,7 +523,7 @@ class JunctionTrackGenerator:
     def __init__(self, bedgraph_writer: BedGraphWriter):
         self.writer = bedgraph_writer
 
-    def generate_junction_bed_tracks(self, variant, interval, scores, ontology: str) -> list:
+    def generate_junction_bed_tracks(self, variant, interval, scores, ontology: str) -> list[Path]:
         """Generate BED files for junction visualization from JunctionData.
                 Creates BED12 format files with junction data suitable for
         genome browser sashimi plot visualization.
@@ -533,7 +543,7 @@ class JunctionTrackGenerator:
             - Score values scaled for line thickness
             - Color coding by track type
         """
-        generated_files: list = []
+        generated_files: list[Path] = []
 
         if not hasattr(scores.reference, 'splice_junctions'):
             return generated_files
@@ -561,14 +571,12 @@ class JunctionTrackGenerator:
         return generated_files
 
     def _generate_junction_bed_track(
-            self, variant, interval, junction_data, track_index: int, track_name: str, track_type: str, ontology: str
-    ):
+        self, variant, interval, junction_data, track_index: int, track_name: str, track_type: str, ontology: str
+    ) -> Path:
         """Generate a single BED track file for junctions."""
         output_path = self.writer.get_output_path(variant, track_name, track_type, ontology, 'junctions')
 
-        # Ensure parent directories exist for both local and cloud paths
-
-        with output_path.open('w') as f:
+        with to_anypath(output_path).open('w') as f:
             # Write BED track header for sashimi visualization with score labels
             f.write(f'track type=bed name="Sashimi {track_type} {ontology}" ')
             f.write(f'description="Junction {track_name} ({track_type})" ')
@@ -659,153 +667,146 @@ def init_worker(track_gen, rna_gen, junction_gen, usage_gen):
     global_usage_track_generator = usage_gen
 
 
+def main(var_file: str, output_root: str, ontologies: list[str], organization: str = 'variant'):
+    """Main function to process variants and generate genomic tracks.
 
-async def process_variants_streaming(model, var_file: str, output_root: str):
-    """Process variants one at a time to minimize memory usage."""
+    Orchestrates the entire pipeline: loads variants, filters by significance,
+    generates predictions using AlphaGenome API, and creates BedGraph/BED tracks.
+
+    Args:
+        var_file: Path to TSV file with variant data (CHROM, POS, REF, ALT columns)
+        output_root: Root directory for output files
+        ontologies: List of ontology terms to process (e.g., ['UBERON:0001134'])
+        organization: Output organization mode ('variant' or 'track_type')
+
+    Returns:
+        List of paths to all generated track files, or None if no variants qualify
+
+    Raises:
+        ValueError: If organization mode is invalid
+        FileNotFoundError: If variant file doesn't exist
+    """
+    model = dna_client.create(api_key)
     variants = load_variants_table(var_file)
-    print(f'Loaded {len(variants)} variants.')
+    significant_results: pd.DataFrame | None = None
 
-    significant_count = 0
-    all_significant_dfs = []  # Only store DataFrames, not full variant objects
+    print(f'Loaded {len(variants)} variants from {var_file!s}.')
+    print(f'Using ontology terms: {ontologies!s} with threshold {THRESHOLD}.')
 
-    # Process variants one by one (or in small groups)
-    semaphore = asyncio.Semaphore(30)  # Limit concurrent processing
+    # Initialize counters and lists
+    sig_results_counter = 0
+    sig_var_counter_dict: dict[tuple[str, int], int] = {}
+    intervals_to_score = []
+    vars_to_score = []
 
-    async def process_single_variant(var):
-        async with semaphore:
-            loop = asyncio.get_event_loop()
-            interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
+    # Parse organization mode
+    try:
+        org_mode = OrganizationMode(organization)
+    except ValueError as err:
+        raise ValueError(f"Invalid organization mode: {organization}. Choose 'variant' or 'track_type'") from err
 
-            # Run blocking operation in thread pool
-            variant_scores = await loop.run_in_executor(
-                None,
-                lambda: model.score_variant(
-                    interval=interval,
-                    variant=var,
-                    variant_scorers=[variant_scorers.RECOMMENDED_VARIANT_SCORERS['SPLICE_SITE_USAGE']],
-                ),
-            )
+    # Pre-filter variants based on significance scores
+    for var in variants:
+        interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
+        variant_scores = model.score_variant(
+            interval=interval,
+            variant=var,
+            variant_scorers=[variant_scorers.RECOMMENDED_VARIANT_SCORERS['SPLICE_SITE_USAGE']],
+        )
 
-            tidied_scores = variant_scorers.tidy_scores([variant_scores], match_gene_strand=True)
-            filtered_scores = tidied_scores[tidied_scores['raw_score'].values >= THRESHOLD]
+        tidied_scores = variant_scorers.tidy_scores(
+            [variant_scores],
+            match_gene_strand=True,
+        )
 
-            if not filtered_scores.empty:
-                return filtered_scores, interval, var
-            return None
+        filtered_scores = tidied_scores[tidied_scores['raw_score'].values >= THRESHOLD]
 
-    # Process variants in small batches to control memory
-    batch_size = 10  # Smaller batches
-    for i in range(0, len(variants), batch_size):
-        batch = variants[i : i + batch_size]
-        tasks = [process_single_variant(var) for var in batch]
-        results = await asyncio.gather(*tasks)
-
-        # Collect only the essential data
-        for result in results:
-            if result is not None:
-                scores_df, interval, var = result
-                all_significant_dfs.append(scores_df)
-                significant_count += 1
-                # Don't store the full variant object or interval unless needed
-
-        # Optional: Force garbage collection
-        del batch, tasks, results
-
-    print(f'{significant_count} variants had significant scores.')
-
-    # Only combine DataFrames at the end
-    if all_significant_dfs:
-        final_df = pd.concat(all_significant_dfs, ignore_index=True)
-
-        # Save to file
-        buffer = io.StringIO()
-        final_df.to_csv(buffer, sep='\t', index=False)
-        buffer.seek(0)
-
-        output_path = to_anypath(f'{output_root}.tsv')
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open('w') as f:
-            f.write(buffer.read())
-
-        buffer.close()
-        del final_df  # Free memory
-
-    return significant_count
-
-
-async def generate_tracks_streaming(
-    model, var_file: str, output_root: str, ontologies: List[str], significant_count: int
-):
-    """Generate tracks in a memory-efficient way."""
-    if significant_count == 0:
-        return []
-
-    variants = load_variants_table(var_file)
-
-    # Process track generation in small batches
-    batch_size = 5  # Even smaller for track generation
-    all_generated_files = []
-
-    for i in range(0, len(variants), batch_size):
-        batch = variants[i : i + batch_size]
-
-        # Score this batch first to filter significant ones
-        significant_in_batch = []
-        for var in batch:
-            interval = var.reference_interval.resize(dna_client.SEQUENCE_LENGTH_1MB)
-            # Quick check if this variant was significant (you might want to optimize this)
-            significant_in_batch.append((var, interval))
-
-        if not significant_in_batch:
+        # If there are no scores above the threshold, skip to the next variant
+        if filtered_scores.empty:
+            print(f'No scores above threshold for variant {var}.')
             continue
 
-        # Process each ontology for this batch
-        for ontology in ontologies:
-            vars_batch = [item[0] for item in significant_in_batch]
-            intervals_batch = [item[1] for item in significant_in_batch]
+            # Track significant results
+        key = (var.chromosome, var.position)
+        sig_var_counter_dict[key] = sig_var_counter_dict.get(key, 0) + 1
+        sig_results_counter += 1
 
-            # Generate predictions for this small batch
-            loop = asyncio.get_event_loop()
-            variant_predictions = await loop.run_in_executor(
-                None,
-                lambda: model.predict_variants(
-                    intervals=intervals_batch,
-                    variants=vars_batch,
-                    ontology_terms=[ontology],
-                    requested_outputs={dna_client.OutputType.SPLICE_SITES},
-                ),
+        if significant_results is None:
+            significant_results = filtered_scores
+        else:
+            significant_results = pd.concat([significant_results, filtered_scores], ignore_index=True)
+
+        intervals_to_score.append(interval)
+        vars_to_score.append(var)
+
+    if not intervals_to_score or not vars_to_score:
+        print('No variants to score after filtering. Exiting.')
+        return None
+
+    # Process each ontology
+    all_generated_files = []
+    for ontology in ontologies:
+        # Initialize track generation components
+        bedgraph_writer = BedGraphWriter(var_file, output_root, ontology, org_mode)
+        track_generator = SpliceSiteTrackGenerator(bedgraph_writer)
+        rna_track_generator = RNAseqTrackGenerator(bedgraph_writer)
+        junction_track_generator = JunctionTrackGenerator(bedgraph_writer)
+        usage_track_generator = SpliceSiteUsageTrackGenerator(bedgraph_writer)
+
+        variant_predictions = model.predict_variants(
+            intervals=intervals_to_score,
+            variants=vars_to_score,
+            ontology_terms=[ontology],
+            requested_outputs={
+                dna_client.OutputType.SPLICE_SITES,
+                dna_client.OutputType.SPLICE_SITE_USAGE,
+                dna_client.OutputType.RNA_SEQ,
+                dna_client.OutputType.SPLICE_JUNCTIONS,
+            },
+            max_workers=5,
+        )
+
+        variant_args = list(
+            zip(
+                variant_predictions,
+                vars_to_score,
+                intervals_to_score,
+                [ontology] * len(variant_predictions),
+                strict=False,
             )
+        )
 
-            # Generate track files immediately and collect paths
-            # (implement your track generation logic here)
-            # Don't store the full prediction data, just generate files
+        num_processes = min(mp.cpu_count(), len(variant_args))
+        print(f'Using {num_processes} processes for variant processing')
+
+        with mp.Pool(
+            processes=num_processes,
+            initializer=init_worker,
+            initargs=(track_generator, rna_track_generator, junction_track_generator, usage_track_generator),
+        ) as pool:
+            results = list(pool.imap(process_variant_with_globals, variant_args))
+
+        # Flatten results
+        ontology_files = [file for sublist in results for file in sublist]
+        all_generated_files.extend(ontology_files)
+        print(f'Generated {len(ontology_files)} track files for ontology {ontology} in {bedgraph_writer.bedgraph_dir}')
+
+    # Write significant results
+    if significant_results is not None:
+        buffer = io.StringIO()
+        significant_results.to_csv(buffer, sep='\t', index=False)
+        buffer.seek(0)
+        with to_anypath(f'{output_root}.tsv').open('w') as handle:
+            handle.write(buffer.read())
+        buffer.close()
+        print(
+            f'{sig_results_counter} out of {len(variants)} variants '
+            f'had significant scores above the threshold {THRESHOLD}.'
+        )
+    else:
+        print('No significant results found.')
 
     return all_generated_files
-
-
-async def main_async(var_file: str, output_root: str, ontologies: List[str], organization: str = 'variant'):
-    """Memory-efficient async main function."""
-    model = dna_client.create(api_key)
-
-    # Step 1: Process variants and find significant ones
-    significant_count = await process_variants_streaming(model, var_file, output_root)
-
-    # Step 2: Generate tracks for significant variants only
-    generated_files = await generate_tracks_streaming(model, var_file, output_root, ontologies, significant_count)
-
-    return generated_files
-
-
-def run_main(args: Namespace):
-    """Run the async main function."""
-    return asyncio.run(
-        main_async(
-            var_file=args.var_file,
-            output_root=args.output_root,
-            ontologies=args.ontology,
-            organization=args.organization,
-        )
-    )
 
 
 if __name__ == '__main__':
@@ -822,5 +823,4 @@ if __name__ == '__main__':
         help="Organization mode: 'variant' groups by variant, 'track_type' groups by reference/alternate/delta",
     )
     args = parser.parse_args()
-    result = run_main(args)
-    print('Generated files:', result)
+    main(args.var_file, args.output_root, args.ontology, args.organization)
