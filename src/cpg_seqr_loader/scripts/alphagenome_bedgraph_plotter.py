@@ -192,7 +192,7 @@ class BedGraphWriter:
         output_path = self.get_output_path(variant, track_name, track_type, ontology, output_type)
         compressed_data = self._compress_values(values, interval.chromosome, interval.start)
 
-        with to_anypath(output_path) as f:
+        with to_anypath(output_path).open('w') as f:
             # Write header
             for line in self._create_header(interval):
                 f.write(f'{line}\n')
@@ -205,13 +205,6 @@ class BedGraphWriter:
                 f.write(f'{chrom}\t{start}\t{end}\t{value:.6f}\n')
 
         return output_path
-    def _create_header(self, interval) -> list[str]:
-        """Create BedGraph header with browser settings."""
-        return [
-            f'browser position {interval.chromosome}:{interval.start}-{interval.end}',
-            'browser hide all',
-            'browser pack refGene',
-        ]
 
     def _create_track_line(self, track_name: str, track_type: str = 'reference') -> str:
         """Create track definition line with styling."""
