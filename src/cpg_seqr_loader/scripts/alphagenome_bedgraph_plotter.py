@@ -113,7 +113,6 @@ class BedGraphWriter:
         # Create main bedgraph directory
         var_file_path = to_anypath(var_file)
         self.bedgraph_dir = self.output_root / var_file_path.stem
-        self.bedgraph_dir.mkdir(parents=True, exist_ok=True)
 
         # Color mapping for track types
         self.track_colors = {
@@ -568,7 +567,6 @@ class JunctionTrackGenerator:
         output_path = self.writer.get_output_path(variant, track_name, track_type, ontology, 'junctions')
 
         # Ensure parent directories exist for both local and cloud paths
-        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with output_path.open('w') as f:
             # Write BED track header for sashimi visualization with score labels
