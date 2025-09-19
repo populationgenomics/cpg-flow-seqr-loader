@@ -573,6 +573,7 @@ class JunctionTrackGenerator:
         # Ensure parent directories exist for both local and cloud paths
         parent_dir = to_anypath(output_path.parent)
         parent_dir.mkdir(parents=True, exist_ok=True)
+
         with to_anypath(output_path).open('w') as f:
             # Write BED track header for sashimi visualization with score labels
             f.write(f'track type=bed name="Sashimi {track_type} {ontology}" ')
