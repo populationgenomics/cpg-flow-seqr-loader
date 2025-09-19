@@ -16,6 +16,7 @@ Required TSV columns: CHROM, POS, REF, ALT
 """
 
 # ruff: noqa: PD011, PLR0915, ARG002
+
 import io
 import json
 import multiprocessing as mp
