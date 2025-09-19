@@ -144,16 +144,13 @@ class BedGraphWriter:
         if self.organization_mode == OrganizationMode.BY_VARIANT:
             # Group by sample (variant)
             variant_dir = self.bedgraph_dir / f'{variant!s}'
-            variant_dir.mkdir(exist_ok=True)
 
-            # Create ontology directory within variant directory using global ontology_to_biosample
+            # Create ontology directory within variant directory
             ontology_dir_name = f'{ontology}:{ontology_to_biosample[ontology]}'
             ontology_dir = variant_dir / ontology_dir_name
-            ontology_dir.mkdir(exist_ok=True)
 
             # Create specific directory within variant directory
             specific_dir = ontology_dir / dir_mappings.get(output_type, output_type)
-            specific_dir.mkdir(exist_ok=True)
 
             if output_type == 'junctions':
                 filename = f'{track_type}_{track_name}.bed'
@@ -168,7 +165,6 @@ class BedGraphWriter:
         # BY_TRACK_TYPE
         # Group by track type (reference, alternate, delta)
         track_type_dir = self.bedgraph_dir / track_type
-        track_type_dir.mkdir(exist_ok=True)
 
         if output_type == 'junctions':
             filename = f'{variant!s}_junctions_{track_name}.bed'
@@ -190,28 +186,16 @@ class BedGraphWriter:
         ontology: str,
         track_type: str = 'reference',
     ) -> Path:
-        """Write a complete BedGraph file with header and data.
-
-        Creates a properly formatted BedGraph file with browser directives,
-        track definition line, and compressed genomic data.
-
-        Args:
-            variant: Variant being analyzed
-            interval: Genomic interval for the data
-            values: Array of numeric values for each position
-            track_name: Display name for the track
-            output_type: Type of output (rna_seq, splice_sites, etc.)
-            ontology: Ontology term for organization
-            track_type: Track category (reference, alternate, delta)
-
-        Returns:
-            Path to the created BedGraph file
-
-        Raises:
-            IOError: If file cannot be written
-        """
+        """Write a complete BedGraph file with header and data."""
         output_path = self.get_output_path(variant, track_name, track_type, ontology, output_type)
         compressed_data = self._compress_values(values, interval.chromosome, interval.start)
+
+        # Ensure parent directories exist (works with cloud paths)
+        parent_dir = output_path.parent
+        if hasattr(parent_dir, 'mkdir'):  # Local path
+            parent_dir.mkdir(parents=True, exist_ok=True)
+        else:  # Cloud path - rely on to_anypath handling
+            pass  # to_anypath should handle cloud path creation
 
         with to_anypath(output_path).open('w') as f:
             # Write header
