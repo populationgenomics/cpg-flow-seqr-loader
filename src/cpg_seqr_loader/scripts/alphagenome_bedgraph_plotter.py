@@ -810,6 +810,7 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
     return all_generated_files
 
 
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
     parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
