@@ -33,7 +33,7 @@ from alphagenome.models import dna_client, variant_scorers
 from cloudpathlib.anypath import to_anypath
 
 # Load from JSON file
-with open('/Users/johass/PycharmProjects/cpg-flow-seqr-loader/src/ontology_to_biosample_mapping.json') as file:
+with open('src/ontology_to_biosample_mapping.json') as file:
     ontology_to_biosample = json.load(file)
 
 
