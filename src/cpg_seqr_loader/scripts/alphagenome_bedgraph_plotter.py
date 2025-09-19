@@ -33,7 +33,7 @@ from alphagenome.models import dna_client, variant_scorers
 from cloudpathlib.anypath import to_anypath
 
 # Load from JSON file
-with open('src/ontology_to_biosample_mapping.json') as file:
+with open('/Users/johass/PycharmProjects/cpg-flow-seqr-loader/src/ontology_to_biosample_mapping.json') as file:
     ontology_to_biosample = json.load(file)
 
 
@@ -82,16 +82,6 @@ def load_variants_table(path: str) -> list[genome.Variant]:
                 )
             )
     return variants
-
-def to_anypath(path_str):
-    """A helper to return a GCS blob or local file handle depending on the path."""
-    if path_str.startswith("gs://"):
-        from gcsfs import GCSFileSystem
-        fs = GCSFileSystem()
-        return fs.open(path_str, 'w')
-    else:
-        from pathlib import Path
-        return Path(path_str).open('w')
 
 class BedGraphWriter:
     """Handles creation and writing of BedGraph files with track metadata.
@@ -746,6 +736,8 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
 
     # Process each ontology
     all_generated_files = []
+    BATCH_SIZE = 30
+
     for ontology in ontologies:
         # Initialize track generation components
         bedgraph_writer = BedGraphWriter(var_file, output_root, ontology, org_mode)
@@ -754,43 +746,73 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
         junction_track_generator = JunctionTrackGenerator(bedgraph_writer)
         usage_track_generator = SpliceSiteUsageTrackGenerator(bedgraph_writer)
 
-        variant_predictions = model.predict_variants(
-            intervals=intervals_to_score,
-            variants=vars_to_score,
-            ontology_terms=[ontology],
-            requested_outputs={
-                dna_client.OutputType.SPLICE_SITES,
-                dna_client.OutputType.SPLICE_SITE_USAGE,
-                dna_client.OutputType.RNA_SEQ,
-                dna_client.OutputType.SPLICE_JUNCTIONS,
-            },
-            max_workers=5,
-        )
+        # Process variants in batches of 30
+        ontology_files = []
+        for batch_start in range(0, len(intervals_to_score), BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, len(intervals_to_score))
+            batch_intervals = intervals_to_score[batch_start:batch_end]
+            batch_variants = vars_to_score[batch_start:batch_end]
 
-        variant_args = list(
-            zip(
-                variant_predictions,
-                vars_to_score,
-                intervals_to_score,
-                [ontology] * len(variant_predictions),
-                strict=False,
+            print(
+                f'Processing batch {batch_start // BATCH_SIZE + 1}: variants {batch_start + 1}-{batch_end} for ontology {ontology}'
             )
-        )
 
-        num_processes = min(mp.cpu_count(), len(variant_args))
-        print(f'Using {num_processes} processes for variant processing')
+            # Get predictions for this batch
+            variant_predictions = model.predict_variants(
+                intervals=batch_intervals,
+                variants=batch_variants,
+                ontology_terms=[ontology],
+                requested_outputs={
+                    dna_client.OutputType.SPLICE_SITES,
+                    dna_client.OutputType.SPLICE_SITE_USAGE,
+                    dna_client.OutputType.RNA_SEQ,
+                    dna_client.OutputType.SPLICE_JUNCTIONS,
+                },
+                max_workers=5,
+            )
 
-        with mp.Pool(
-            processes=num_processes,
-            initializer=init_worker,
-            initargs=(track_generator, rna_track_generator, junction_track_generator, usage_track_generator),
-        ) as pool:
-            results = list(pool.imap(process_variant_with_globals, variant_args))
+            variant_args = list(
+                zip(
+                    variant_predictions,
+                    batch_variants,
+                    batch_intervals,
+                    [ontology] * len(variant_predictions),
+                    strict=False,
+                )
+            )
 
-        # Flatten results
-        ontology_files = [file for sublist in results for file in sublist]
+            num_processes = min(mp.cpu_count(), len(variant_args))
+            print(f'Using {num_processes} processes for batch processing')
+
+            with mp.Pool(
+                processes=num_processes,
+                initializer=init_worker,
+                initargs=(track_generator, rna_track_generator, junction_track_generator, usage_track_generator),
+            ) as pool:
+                results = list(pool.imap(process_variant_with_globals, variant_args))
+
+            # Flatten batch results and add to ontology files
+            batch_files = [file for sublist in results for file in sublist]
+            ontology_files.extend(batch_files)
+
+            # Clear memory between batches
+            del variant_predictions
+            del variant_args
+            del results
+            del batch_files
+
+            print(f'Completed batch {batch_start // BATCH_SIZE + 1} for ontology {ontology}')
+
         all_generated_files.extend(ontology_files)
         print(f'Generated {len(ontology_files)} track files for ontology {ontology} in {bedgraph_writer.bedgraph_dir}')
+
+        # Clear ontology-specific data to free memory between ontologies
+        del bedgraph_writer
+        del track_generator
+        del rna_track_generator
+        del junction_track_generator
+        del usage_track_generator
+        del ontology_files
 
     # Write significant results
     if significant_results is not None:
@@ -813,10 +835,10 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Generate BedGraph tracks for splice site variants')
-    parser.add_argument('--var_file', help='Path to variant TSV file', required=True)
-    parser.add_argument('--output_root', help='Root output directory', required=True)
+    parser.add_argument('--var_file', help='Path to variant TSV file', default='gs://cpg-kidgen-test/alphagenome/100_genes.tsv')
+    parser.add_argument('--output_root', help='Root output directory', default='gs://cpg-kidgen-test/alphagenome/100_genes_test')
     parser.add_argument(
-        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113', 'UBERON:0002369'], help='Ontology terms'
+        '--ontology', nargs='+', default=['UBERON:0001134', 'UBERON:0002113'] , help='Ontology terms'
     )
     parser.add_argument(
         '--organization',
