@@ -190,12 +190,9 @@ class BedGraphWriter:
         output_path = self.get_output_path(variant, track_name, track_type, ontology, output_type)
         compressed_data = self._compress_values(values, interval.chromosome, interval.start)
 
-        # Ensure parent directories exist (works with cloud paths)
-        parent_dir = output_path.parent
-        if hasattr(parent_dir, 'mkdir'):  # Local path
-            parent_dir.mkdir(parents=True, exist_ok=True)
-        else:  # Cloud path - rely on to_anypath handling
-            pass  # to_anypath should handle cloud path creation
+        # Ensure parent directories exist for both local and cloud paths
+        parent_dir = to_anypath(output_path.parent)
+        parent_dir.mkdir(parents=True, exist_ok=True)
 
         with to_anypath(output_path).open('w') as f:
             # Write header
@@ -568,11 +565,14 @@ class JunctionTrackGenerator:
         return generated_files
 
     def _generate_junction_bed_track(
-        self, variant, interval, junction_data, track_index: int, track_name: str, track_type: str, ontology: str
+            self, variant, interval, junction_data, track_index: int, track_name: str, track_type: str, ontology: str
     ) -> Path:
         """Generate a single BED track file for junctions."""
         output_path = self.writer.get_output_path(variant, track_name, track_type, ontology, 'junctions')
 
+        # Ensure parent directories exist for both local and cloud paths
+        parent_dir = to_anypath(output_path.parent)
+        parent_dir.mkdir(parents=True, exist_ok=True)
         with to_anypath(output_path).open('w') as f:
             # Write BED track header for sashimi visualization with score labels
             f.write(f'track type=bed name="Sashimi {track_type} {ontology}" ')
