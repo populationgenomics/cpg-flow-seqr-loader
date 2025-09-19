@@ -333,6 +333,7 @@ class RNAseqTrackGenerator(BaseTrackGenerator):
         dataset present in the scores.
 
         Args:
+
             variant: Variant being analyzed
             interval: Genomic interval
             scores: AlphaGenome prediction scores
