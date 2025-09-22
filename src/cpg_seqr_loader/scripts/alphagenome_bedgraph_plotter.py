@@ -713,7 +713,7 @@ def main(var_file: str, output_root: str, ontologies: list[str], organization: s
 
     # Process each ontology
     all_generated_files = []
-    BATCH_SIZE = 30
+    BATCH_SIZE = 10
 
     for ontology in ontologies:
         # Initialize track generation components
