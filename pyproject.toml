@@ -21,10 +21,9 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow',
+    'cpg-flow>=1',
     'elasticsearch==8.*',
     'hatchling',
-    'loguru',
 ]
 
 [project.urls]
