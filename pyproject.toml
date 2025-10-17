@@ -23,7 +23,6 @@ classifiers=[
 dependencies=[
     'cpg-flow>=1',
     'elasticsearch==8.*',
-    'hatchling',
 ]
 
 [project.urls]
