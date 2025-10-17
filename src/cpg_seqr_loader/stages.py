@@ -395,15 +395,9 @@ class AnnotateCohort(stage.MultiCohortStage):
         """
         Expected to write a matrix table.
         """
-        return self.tmp_prefix / 'annotate_cohort.mt'
+        return self.prefix / 'annotate_cohort.mt'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        """
-
-        Args:
-            multicohort ():
-            inputs ():
-        """
 
         outputs = self.expected_outputs(multicohort)
         vep_ht_path = inputs.as_str(target=multicohort, stage=AnnotateVcfsWithVep)
