@@ -195,16 +195,12 @@ def query_for_latest_vds(dataset: str, entry_type: str = 'combiner') -> dict | N
 
 @functools.lru_cache(1)
 def get_localised_resources_for_vqsr() -> dict[str, 'ResourceGroup']:
-    """
-    get the resources required for VQSR, once per run
-    Returns:
-        the dictionary of resources and their names
-    """
+    """Get the resources required for VQSR, once per run."""
 
     return {
         key: hail_batch.get_batch().read_input_group(
-            base=config.reference_path(f'broad/{key}_vcf'),
-            index=config.reference_path(f'broad/{key}_vcf_index'),
+            base=config.config_retrieve(['references', f'{key}_vcf']),
+            index=config.config_retrieve(['references', f'{key}_vcf_index']),
         )
         for key in [
             'axiom_poly',

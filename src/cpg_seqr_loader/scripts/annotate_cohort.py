@@ -122,7 +122,7 @@ def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
         same MT, with gnomAD 4 annotations placed into the INFO struct as a nested Struct
     """
 
-    gnomad4_ht = hl.read_table(config.reference_path('gnomad_4.1_joint_ht'))
+    gnomad4_ht = hl.read_table(config.config_retrieve(['references', 'gnomad_4.1_joint_ht']))
 
     # the index of the target populations in the joint.freq array
     target_index = hl.eval(gnomad4_ht.globals.joint_globals.freq_index_dict[GNOMAD_TARGET_POP])
@@ -193,8 +193,8 @@ def annotate_cohort(
         )
         mt = mt.checkpoint(output=join(checkpoint_prefix, 'mt_vep_vqsr.mt'), overwrite=True)
 
-    ref_ht = hl.read_table(config.reference_path('seqr_combined_reference_data'))
-    clinvar_ht = hl.read_table(config.reference_path('seqr_clinvar'))
+    ref_ht = hl.read_table(config.config_retrieve(['references', 'seqr_combined_reference_data']))
+    clinvar_ht = hl.read_table(config.config_retrieve(['references', 'seqr_clinvar']))
 
     mt = hl.variant_qc(mt)
     mt = mt.annotate_rows(
@@ -244,7 +244,7 @@ def annotate_cohort(
 
     # this was previously executed in the MtToEs job, as it wasn't possible on QoB
     loguru.logger.info('Adding GRCh37 coords')
-    liftover_path = config.reference_path('liftover_38_to_37')
+    liftover_path = config.config_retrieve(['references', 'liftover_38_to_37'])
     rg37 = hl.get_reference('GRCh37')
     rg38 = hl.get_reference('GRCh38')
     rg38.add_liftover(liftover_path, rg37)
