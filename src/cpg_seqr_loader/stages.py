@@ -398,7 +398,6 @@ class AnnotateCohort(stage.MultiCohortStage):
         return self.prefix / 'annotate_cohort.mt'
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-
         outputs = self.expected_outputs(multicohort)
         vep_ht_path = inputs.as_str(target=multicohort, stage=AnnotateVcfsWithVep)
         vqsr_vcf = inputs.as_str(target=multicohort, stage=RunIndelVqsr)
