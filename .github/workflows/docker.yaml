@@ -76,7 +76,9 @@ jobs:
   docker-prod:
     name: Build & Push to Prod
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref_name == 'main'
+    if: |
+      (github.event_name == 'push' && github.ref_name == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')
     environment: production
     permissions:
       id-token: write
