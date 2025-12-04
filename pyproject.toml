@@ -21,7 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow~=1.1.1',
+    'cpg-flow~=1.2',
     'elasticsearch==8.*',
 ]
 
