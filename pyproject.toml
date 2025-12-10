@@ -46,24 +46,10 @@ packages = ["src/cpg_seqr_loader"]
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
 
-[options]
-include_package_data = true
-
 [options.package_data]
-'cpg_seqr_loader'=  ['config_template.toml']
-
-[tool.black]
-line-length = 120
-skip-string-normalization = true
-exclude = '''
-/(
-  venv
-  | \.mypy_cache
-  | \.venv
-  | build
-  | dist
-)/
-'''
+'cpg_seqr_loader'=  [
+    'config_template.toml',
+]
 
 [tool.mypy]
 ignore_missing_imports = true

@@ -14,10 +14,9 @@ Additional arguments:
 
 import argparse
 
-from loguru import logger
-
 from cpg_flow import utils
 from cpg_utils import config, hail_batch
+from loguru import logger
 
 import hail as hl
 
