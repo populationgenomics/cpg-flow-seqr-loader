@@ -59,8 +59,6 @@ def main(
         # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
         vds = hl.vds.read_vds(vds_in, n_partitions=partitions)
 
-        mt = hl.vds.to_dense_mt(vds)
-
         if 'GT' not in vds.variant_data.entry:
             logger.info('Converting LGT to GT annotations...')
             vds.variant_data = vds.variant_data.annotate_entries(
@@ -78,6 +76,8 @@ def main(
                     number='R',
                 ),
             )
+
+        mt = hl.vds.to_dense_mt(vds)
 
         # taken from _filter_rows_and_add_tags in large_cohort/site_only_vcf.py
         # remove any monoallelic or non-ref-in-any-sample sites
