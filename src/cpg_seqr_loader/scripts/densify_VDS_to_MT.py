@@ -14,7 +14,8 @@ Additional arguments:
 
 import argparse
 
-import loguru
+from loguru import logger
+
 from cpg_flow import utils
 from cpg_utils import config, hail_batch
 
@@ -54,12 +55,30 @@ def main(
 
     # check here to see if we can reuse the dense MT
     if not utils.can_reuse(dense_mt_out):
-        loguru.logger.info(f'Densifying data, using {partitions} partitions')
+        logger.info(f'Densifying data, using {partitions} partitions')
 
         # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
         vds = hl.vds.read_vds(vds_in, n_partitions=partitions)
 
         mt = hl.vds.to_dense_mt(vds)
+
+        if 'GT' not in vds.variant_data.entry:
+            logger.info('Converting LGT to GT annotations...')
+            vds.variant_data = vds.variant_data.annotate_entries(
+                GT=hl.vds.lgt_to_gt(vds.variant_data.LGT, vds.variant_data.LA),
+            )
+
+        if 'AD' not in vds.variant_data.entry:
+            logger.info('Converting LAD to AD annotations...')
+            vds.variant_data = vds.variant_data.annotate_entries(
+                AD=hl.vds.local_to_global(
+                    vds.variant_data.LAD,
+                    vds.variant_data.LA,
+                    n_alleles=hl.len(vds.variant_data.alleles),
+                    fill_value=0,
+                    number='R',
+                ),
+            )
 
         # taken from _filter_rows_and_add_tags in large_cohort/site_only_vcf.py
         # remove any monoallelic or non-ref-in-any-sample sites
@@ -91,14 +110,14 @@ def main(
         # unpack mt.info.info back into mt.info. Must be better syntax for this?
         mt = mt.drop('gvcf_info')
 
-        loguru.logger.info('Splitting multiallelics, in a sparse way')
+        logger.info('Splitting multiallelics, in a sparse way')
         mt = hl.experimental.sparse_split_multi(mt)
 
-        loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
+        logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
 
     else:
-        loguru.logger.info(f'Accepting existing data in {dense_mt_out}')
+        logger.info(f'Accepting existing data in {dense_mt_out}')
 
     if not (sites_only or separate_header):
         return
@@ -110,12 +129,12 @@ def main(
 
     # write a directory containing all the per-partition VCF fragments, each with a VCF header
     if sites_only:
-        loguru.logger.info('Writing sites-only VCF, header-per-shard')
+        logger.info('Writing sites-only VCF, header-per-shard')
         hl.export_vcf(sites_only_ht, sites_only, tabix=True, parallel='header_per_shard')
 
     # write a directory containing all the per-partition VCF fragments, with a separate VCF header file
     if separate_header:
-        loguru.logger.info('Writing sites-only VCF, separate-header')
+        logger.info('Writing sites-only VCF, separate-header')
         hl.export_vcf(sites_only_ht, separate_header, tabix=True, parallel='separate_header')
 
 
