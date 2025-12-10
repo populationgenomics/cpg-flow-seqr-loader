@@ -8,7 +8,7 @@ description='Seqr-Loader (gVCF-combiner) implemented in CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
 requires-python = ">=3.10,<3.11"
-version="0.1.10"
+version="0.2.0"
 license={"file" = "LICENSE"}
 classifiers=[
     'Environment :: Console',
@@ -120,7 +120,7 @@ hail = ["hail"]
 "src/cpg_seqr_loader/scripts/annotate_cohort.py" = ["E501"]
 
 [tool.bumpversion]
-current_version = "0.1.10"
+current_version = "0.2.0"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 commit = true
