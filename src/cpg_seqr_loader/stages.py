@@ -563,7 +563,7 @@ class AnnotatedDatasetMtToVcf(stage.DatasetStage):
 @stage.stage(
     required_stages=[AnnotateDataset],
     analysis_type='es-index',
-    analysis_keys=['index_name'],
+    analysis_keys=['done_flag'],
     update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
 )
 class ExportMtAsEsIndex(stage.DatasetStage):
