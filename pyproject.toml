@@ -7,7 +7,7 @@ name='cpg_seqr_loader'
 description='Seqr-Loader (gVCF-combiner) implemented in CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10,<3.12"
 version="0.1.10"
 license={"file" = "LICENSE"}
 classifiers=[
@@ -21,7 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow~=1.2',
+    'cpg-flow~=1.3',
     'elasticsearch==8.*',
 ]
 
