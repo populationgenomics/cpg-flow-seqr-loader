@@ -4,7 +4,7 @@ Read in a MT, and re-jig the annotations ready for Seqr Export
 
 from argparse import ArgumentParser
 
-from cpg_utils import hail_batch
+from cpg_utils import config, hail_batch
 from loguru import logger
 
 import hail as hl
@@ -15,7 +15,11 @@ def annotate_dataset_mt(mt_path: str, out_mt_path: str) -> None:
     Add dataset-level annotations.
     """
 
-    hail_batch.init_batch()
+    hail_batch.init_batch(
+        worker_memory=config.config_retrieve(['annotate_dataset', 'worker_memory']),
+        driver_memory=config.config_retrieve(['annotate_dataset', 'driver_memory']),
+        driver_cores=config.config_retrieve(['annotate_dataset', 'driver_cores']),
+    )
 
     mt = hl.read_matrix_table(mt_path)
 

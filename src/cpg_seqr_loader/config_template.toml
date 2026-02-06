@@ -43,6 +43,14 @@ gvcf_batch_size = 5
 # then repartition all VDSs to match those intervals prior to merging
 target_records = 30000
 
+[annotate_dataset]
+# highem, standard, or a string, e.g. "4Gi"
+worker_memory = "highmem"
+# highem, standard, or a string, e.g. "4Gi"
+driver_memory = "highmem"
+# integer
+driver_cores = 2
+
 [vcf_from_mt]
 # highem, standard, or a string, e.g. "4Gi"
 driver_memory = "standard"
