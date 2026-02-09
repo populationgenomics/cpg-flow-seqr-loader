@@ -1,10 +1,5 @@
 [workflow]
 
-name = 'seqr_loader'
-
-# used to make sure we don't repeat previously completed stages
-check_expected_outputs = true
-
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
 
@@ -42,6 +37,10 @@ gvcf_batch_size = 5
 # when merging multiple VDS, we find the largest VDS, repartition to target_records variants per partition
 # then repartition all VDSs to match those intervals prior to merging
 target_records = 30000
+
+# if the process will remove a large number of SGs from the combiner, require this config setting to confirm intent
+sg_remove_threshold = 20
+sg_remove_confirm = false
 
 [annotate_dataset]
 # highem, standard, or a string, e.g. "4Gi"
