@@ -71,15 +71,16 @@ def main(
         # if gvcfs_to_combine is a file, read it and split into a list
         with open(sgs_to_remove_file) as f:
             sgs_to_remove = [line.strip() for line in f if line.strip()]
+            num_sgs_to_remove = len(sgs_to_remove)
 
             # quick check - if we're removing many samples, confirm intent
-            if len(sgs_to_remove) >= config.config_retrieve(['combiner', 'sg_remove_threshold'], 30):
+            if num_sgs_to_remove >= config.config_retrieve(['combiner', 'sg_remove_threshold'], 30):
                 if config.config_retrieve(['combiner', 'sg_remove_confirm']):
                     raise ValueError(
-                        f'Attempting to remove {len(sgs_to_remove)} samples from {gvcf_paths}, '
+                        f'Attempting to remove {num_sgs_to_remove} samples from {gvcf_paths}, '
                         'if this is intentional set the config parameter combiner.sg_remove_confirm to proceed'
                     )
-                loguru.logger.warning(f'Removing {len(sgs_to_remove)} samples from {vds_path}')
+                loguru.logger.warning(f'Removing {num_sgs_to_remove} samples from {vds_path}')
     else:
         sgs_to_remove = None
 
