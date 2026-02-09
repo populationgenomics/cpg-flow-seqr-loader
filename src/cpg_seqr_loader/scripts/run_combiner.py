@@ -74,8 +74,8 @@ def main(
             num_sgs_to_remove = len(sgs_to_remove)
 
             # quick check - if we're removing many samples, confirm intent
-            if num_sgs_to_remove >= config.config_retrieve(['combiner', 'sg_remove_threshold'], 30):
-                if config.config_retrieve(['combiner', 'sg_remove_confirm']):
+            if num_sgs_to_remove >= config.config_retrieve(['combiner', 'sg_remove_threshold']):
+                if not config.config_retrieve(['combiner', 'sg_remove_confirm']):
                     raise ValueError(
                         f'Attempting to remove {num_sgs_to_remove} samples from {gvcf_paths}, '
                         'if this is intentional set the config parameter combiner.sg_remove_confirm to proceed'
