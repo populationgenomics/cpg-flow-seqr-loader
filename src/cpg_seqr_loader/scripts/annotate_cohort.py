@@ -241,7 +241,7 @@ def annotate_cohort(
     if config.reference_path('seqr_combined_reference_optional'):
         refavis_ht = hl.read_table(config.reference_path('seqr_combined_reference_optional'))
         loguru.logger.info('Annotating with refavis data')
-        mt = mt.annotate_rows(avis = (refavis_ht[mt.row_key].avis,))
+        mt = mt.annotate_rows(avis=(refavis_ht[mt.row_key].avis,))
 
     # annotate all the gnomAD v4 fields in a separate function
     mt = annotate_gnomad4(mt)
