@@ -217,35 +217,31 @@ def annotate_cohort(
     )
 
     loguru.logger.info('Annotating with clinvar and munging annotation fields')
-    # Common annotations for all cases
-    base_annotations = {
+    mt = mt.annotate_rows(
         # still taking just a single value here for downstream compatibility in Seqr
-        'AC': mt.info.AC[0],
-        'AF': mt.info.AF[0],
-        'AN': mt.info.AN,
-        'aIndex': mt.a_index,
-        'wasSplit': mt.was_split,
-        'sortedTranscriptConsequences': vep.get_expr_for_vep_sorted_transcript_consequences_array(mt.vep),
-        'variantId': variant_id.get_expr_for_variant_id(mt),
-        'contig': variant_id.get_expr_for_contig(mt.locus),
-        'pos': mt.locus.position,
-        'start': mt.locus.position,
-        'end': mt.locus.position + hl.len(mt.alleles[0]) - 1,
-        'ref': mt.alleles[0],
-        'alt': mt.alleles[1],
-        'xpos': variant_id.get_expr_for_xpos(mt.locus),
-        'xstart': variant_id.get_expr_for_xpos(mt.locus),
-        'xstop': variant_id.get_expr_for_xpos(mt.locus) + hl.len(mt.alleles[0]) - 1,
-        'clinvar_data': clinvar_ht[mt.row_key],
-        'ref_data': ref_ht[mt.row_key],
-    }
-
-    # Add optional avis annotation if available
+        AC=mt.info.AC[0],
+        AF=mt.info.AF[0],
+        AN=mt.info.AN,
+        aIndex=mt.a_index,
+        wasSplit=mt.was_split,
+        sortedTranscriptConsequences=vep.get_expr_for_vep_sorted_transcript_consequences_array(mt.vep),
+        variantId=variant_id.get_expr_for_variant_id(mt),
+        contig=variant_id.get_expr_for_contig(mt.locus),
+        pos=mt.locus.position,
+        start=mt.locus.position,
+        end=mt.locus.position + hl.len(mt.alleles[0]) - 1,
+        ref=mt.alleles[0],
+        alt=mt.alleles[1],
+        xpos=variant_id.get_expr_for_xpos(mt.locus),
+        xstart=variant_id.get_expr_for_xpos(mt.locus),
+        xstop=variant_id.get_expr_for_xpos(mt.locus) + hl.len(mt.alleles[0]) - 1,
+        clinvar_data=clinvar_ht[mt.row_key],
+        ref_data=ref_ht[mt.row_key],
+    )
     if config.reference_path('seqr_combined_reference_optional'):
         refavis_ht = hl.read_table(config.reference_path('seqr_combined_reference_optional'))
-        base_annotations['avis'] = refavis_ht[mt.row_key].avis
-
-    mt = mt.annotate_rows(**base_annotations)
+        loguru.logger.info('Annotating with refavis data')
+        mt = mt.annotate_rows(avis = (refavis_ht[mt.row_key].avis,))
 
     # annotate all the gnomAD v4 fields in a separate function
     mt = annotate_gnomad4(mt)
