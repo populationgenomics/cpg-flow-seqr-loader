@@ -238,8 +238,8 @@ def annotate_cohort(
         clinvar_data=clinvar_ht[mt.row_key],
         ref_data=ref_ht[mt.row_key],
     )
-    if config.reference_path('seqr_combined_reference_optional'):
-        refavis_ht = hl.read_table(config.reference_path('seqr_combined_reference_optional'))
+    if avi_table := config.reference_path('avi_table', None):
+        refavis_ht = hl.read_table(avi_table)
         loguru.logger.info('Annotating with refavis data')
         mt = mt.annotate_rows(avis=(refavis_ht[mt.row_key].avis,))
 
