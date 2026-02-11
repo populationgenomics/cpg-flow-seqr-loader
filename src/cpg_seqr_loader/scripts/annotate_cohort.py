@@ -238,10 +238,11 @@ def annotate_cohort(
         clinvar_data=clinvar_ht[mt.row_key],
         ref_data=ref_ht[mt.row_key],
     )
-    if avi_table := config.reference_path('avi_table', None):
+    if avi_table := config.config_retrieve(['references','avi_table'], None):
         refavis_ht = hl.read_table(avi_table)
         loguru.logger.info('Annotating with refavis data')
         mt = mt.annotate_rows(avis=(refavis_ht[mt.row_key].avis,))
+        mt.describe()
 
     # annotate all the gnomAD v4 fields in a separate function
     mt = annotate_gnomad4(mt)
