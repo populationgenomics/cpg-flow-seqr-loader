@@ -46,6 +46,7 @@ def main(
 
     hail_batch.init_batch(
         worker_memory=config.config_retrieve(['combiner', 'worker_memory'], 'highmem'),
+        worker_cores=config.config_retrieve(['combiner', 'worker_cores'], 1),
         driver_memory=config.config_retrieve(['combiner', 'driver_memory'], 'highmem'),
         driver_cores=config.config_retrieve(['combiner', 'driver_cores'], 2),
     )

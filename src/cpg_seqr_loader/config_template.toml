@@ -27,6 +27,7 @@ driver_storage = "10Gi"
 driver_cores = 2
 # highem, standard, or a string, e.g. "4Gi"
 worker_memory = "highmem"
+worker_cores = 1
 
 # The number of gVCFs/VDSs to combine in each intermediate step
 branch_factor = 50
