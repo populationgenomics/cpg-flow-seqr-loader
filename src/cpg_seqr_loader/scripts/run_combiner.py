@@ -45,6 +45,7 @@ def main(
         worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
         driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
         driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
+        worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
     )
 
     # generate these in the job, instead of passing through
