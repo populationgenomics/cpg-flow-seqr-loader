@@ -1,9 +1,5 @@
 [workflow]
 
-name = 'seqr_loader'
-# used to make sure we don't repeat previously completed stages
-check_expected_outputs = true
-
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
 
