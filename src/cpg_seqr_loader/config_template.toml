@@ -24,7 +24,7 @@ driver_memory = "highmem"
 # string, e.g. "4Gi"
 driver_storage = "10Gi"
 # integer
-driver_cores = 2
+driver_cores = 8
 # highem, standard, or a string, e.g. "4Gi"
 worker_memory = "highmem"
 worker_cores = 1
@@ -49,7 +49,7 @@ worker_memory = "highmem"
 # highem, standard, or a string, e.g. "4Gi"
 driver_memory = "highmem"
 # integer
-driver_cores = 2
+driver_cores = 4
 
 [vcf_from_mt]
 # highem, standard, or a string, e.g. "4Gi"
@@ -84,7 +84,6 @@ liftover_38_to_37 = "gs://cpg-common-main/references/liftover/grch38_to_grch37.o
 seqr_clinvar = "gs://cpg-common-main/references/seqr/v0/clinvar.GRCh38.ht"
 seqr_combined_reference_data = "gs://cpg-common-main/references/seqr/v0/combined_reference_data_grch38.ht"
 vep_mount = "gs://cpg-common-main/references/vep/110/mount"
-
 # these are all related to VQSR
 axiom_poly_vcf = "gs://cpg-common-main/references/hg38/v0/Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz"
 axiom_poly_vcf_index = "gs://cpg-common-main/references/hg38/v0/Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz.tbi"
