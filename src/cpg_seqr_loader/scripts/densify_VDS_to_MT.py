@@ -99,8 +99,9 @@ def main(
             PL=hl.vds.local_to_global(
                 mt.LPL,
                 mt.LA,
-                number='G',
+                n_alleles=hl.len(mt.alleles),
                 fill_value=999,
+                number='G',
             ),
         )
 
