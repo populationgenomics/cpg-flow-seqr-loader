@@ -96,7 +96,12 @@ def main(
                 fill_value=0,
                 number='R',
             ),
-            PL=hl.vds.local_to_global(mt.LPL, mt.AD, number='g', fill_value=999,)
+            PL=hl.vds.local_to_global(
+                mt.LPL,
+                mt.AD,
+                number='g',
+                fill_value=999,
+            ),
         )
 
         mt = mt.drop('gvcf_info')
