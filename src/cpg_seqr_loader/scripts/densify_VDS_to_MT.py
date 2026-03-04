@@ -99,7 +99,7 @@ def main(
             PL=hl.vds.local_to_global(
                 mt.LPL,
                 mt.LA,
-                number='g',
+                number='G',
                 fill_value=999,
             ),
         )
