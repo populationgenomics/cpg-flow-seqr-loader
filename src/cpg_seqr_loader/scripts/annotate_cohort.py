@@ -242,7 +242,6 @@ def annotate_cohort(
         refavis_ht = hl.read_table(avi_table)
         loguru.logger.info('Annotating with refavis data')
         mt = mt.annotate_rows(avis=(refavis_ht[mt.row_key].normalised_avis,))
-        mt.describe()
 
     # annotate all the gnomAD v4 fields in a separate function
     mt = annotate_gnomad4(mt)
@@ -307,6 +306,7 @@ def annotate_cohort(
         )
 
     loguru.logger.info('Final Structure:')
+    mt.describe(handler=loguru.logger.info)
     mt.write(out_mt_path, overwrite=True)
     loguru.logger.info(f'Written final matrix table into {out_mt_path}')
 
