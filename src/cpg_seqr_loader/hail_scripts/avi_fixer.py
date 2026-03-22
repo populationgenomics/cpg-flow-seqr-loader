@@ -1,4 +1,7 @@
 import argparse
+
+from cpg_utils import config, hail_batch
+
 import hail as hl
 
 
@@ -9,6 +12,12 @@ def main():
     parser.add_argument('--overwrite', action='store_true', help='Overwrite the output path if it exists')
 
     args = parser.parse_args()
+
+    hail_batch.init_batch(
+        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
+        driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
+        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
+    )
 
     print(f'Reading MatrixTable from {args.input}...')
     mt = hl.read_matrix_table(args.input)
