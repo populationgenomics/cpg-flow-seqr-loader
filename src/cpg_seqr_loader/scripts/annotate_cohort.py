@@ -129,7 +129,7 @@ def annotate_gnomad4(mt: hl.MatrixTable) -> hl.MatrixTable:
     target_xy_index = hl.eval(gnomad4_ht.globals.joint_globals.freq_index_dict[GNOMAD_XY_TARGET_POP])
 
     return mt.annotate_rows(
-        gnomad_genomes=hl.struct(
+        gnomad_joint=hl.struct(
             # these are taken explicitly from the adj population (across all of gnomAD)
             AC=gnomad4_ht[mt.row_key].joint.freq[target_index].AC,
             AN=gnomad4_ht[mt.row_key].joint.freq[target_index].AN,
@@ -307,6 +307,7 @@ def annotate_cohort(
         )
 
     loguru.logger.info('Final Structure:')
+    mt.describe(handler=loguru.logger.info)
     mt.write(out_mt_path, overwrite=True)
     loguru.logger.info(f'Written final matrix table into {out_mt_path}')
 
