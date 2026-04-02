@@ -385,6 +385,7 @@ class AnnotateVcfsWithVep(stage.MultiCohortStage):
         AnnotateVcfsWithVep,
         RunIndelVqsr,
     ],
+    analysis_type='matrixtable',
 )
 class AnnotateCohort(stage.MultiCohortStage):
     """
