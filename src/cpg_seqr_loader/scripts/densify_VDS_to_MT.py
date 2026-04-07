@@ -113,6 +113,9 @@ def main(
         # split out multiallelic rows on the dense representation
         mt = hl.split_multi_hts(mt)
 
+        # adjust the AC field after splitting (not handled in split_multi, see method docstring)
+        mt = mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
+
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
 
