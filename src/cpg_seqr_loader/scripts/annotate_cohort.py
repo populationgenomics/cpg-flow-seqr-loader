@@ -307,6 +307,7 @@ def annotate_cohort(
         )
 
     loguru.logger.info('Final Structure:')
+    mt.describe(handler=loguru.logger.info)
     mt.write(out_mt_path, overwrite=True)
     loguru.logger.info(f'Written final matrix table into {out_mt_path}')
 
