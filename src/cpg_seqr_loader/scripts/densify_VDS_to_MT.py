@@ -116,6 +116,16 @@ def main(
         # adjust the AC field after splitting (not handled in split_multi, see method docstring)
         mt = mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
 
+        # find the minimal representation for each variant
+        mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
+        # Struct(locus=Locus(contig=1, position=100002, reference_genome=GRCh37), alleles=['T', 'C'])
+
+        # rotate the table key(s)
+        mt = mt.key_rows_by(
+            locus=mt.minrep.locus,
+            alleles=mt.minrep.alleles,
+        )
+
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
 
