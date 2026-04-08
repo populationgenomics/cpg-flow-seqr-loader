@@ -118,7 +118,6 @@ def main(
 
         # find the minimal representation for each variant
         mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
-        # Struct(locus=Locus(contig=1, position=100002, reference_genome=GRCh37), alleles=['T', 'C'])
 
         # rotate the table key(s)
         mt = mt.key_rows_by(
