@@ -8,7 +8,7 @@ Strategy (avoids full-table shuffle and doubled DAG):
   5. Cross-collision check against existing correct rows (partition-pruned)
   6. union_rows + write
 """
-
+import loguru
 import argparse
 
 from cpg_utils import config, hail_batch
@@ -50,11 +50,10 @@ def main():
         )
     )
     n_changed = len(collected)
-    print(f'Found {n_changed} rows needing normalization')
+    loguru.logger.info(f'Found {n_changed} rows needing normalization')
 
     if n_changed == 0:
-        mt.write(args.output, overwrite=args.overwrite)
-        print(f'Done. No normalization needed. Wrote to {args.output}')
+        loguru.logger.info(f'Done. No normalization needed. Happy Days')
         return
 
     locus_schema = hl.tstruct(locus=hl.tlocus('GRCh38'), alleles=hl.tarray(hl.tstr))
@@ -91,12 +90,12 @@ def main():
     n_collisions = mt_collisions.count_rows()
 
     if n_collisions > 0:
-        print(f'{n_collisions} normalized keys collide with existing rows; dropping duplicates')
+        loguru.logger.info(f'{n_collisions} normalized keys collide with existing rows; dropping duplicates')
         collision_ht = mt_collisions.rows().select().key_by('locus', 'alleles')
         mt_subset = mt_subset.anti_join_rows(collision_ht)
 
     mt_clean.union_rows(mt_subset).write(args.output, overwrite=args.overwrite)
-    print(f'Done. Wrote normalized MatrixTable to {args.output}')
+    loguru.logger.info(f'Done. Wrote normalized MatrixTable to {args.output}')
 
 
 if __name__ == '__main__':
