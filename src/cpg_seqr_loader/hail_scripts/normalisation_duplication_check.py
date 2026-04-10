@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Normalize variants in a Hail MatrixTable to their minimal representation.
 
 Strategy (avoids full-table shuffle and doubled DAG):
@@ -11,8 +10,10 @@ Strategy (avoids full-table shuffle and doubled DAG):
 """
 
 import argparse
-import hail as hl
+
 from cpg_utils import config, hail_batch
+
+import hail as hl
 
 
 def main():
@@ -23,13 +24,14 @@ def main():
 
     args = parser.parse_args()
 
-    hail_batch.init_batch(worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
+    hail_batch.init_batch(
+        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
         worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
         driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
-        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),)
+        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
+    )
 
     mt = hl.read_matrix_table(args.input)
-
 
     mr = hl.min_rep(mt.locus, mt.alleles)
     needs_norm = (mr.locus != mt.locus) | (mr.alleles != mt.alleles)
@@ -55,7 +57,6 @@ def main():
         print(f'Done. No normalization needed. Wrote to {args.output}')
         return
 
-
     locus_schema = hl.tstruct(locus=hl.tlocus('GRCh38'), alleles=hl.tarray(hl.tstr))
 
     old_keys_ht = hl.Table.parallelize(
@@ -68,9 +69,7 @@ def main():
         schema=locus_schema,
     ).key_by('locus', 'alleles')
 
-
     mt_clean = mt.anti_join_rows(old_keys_ht)
-
 
     old_intervals = [
         hl.parse_locus_interval(f'[{loc}-{loc}]', reference_genome='GRCh38')
@@ -82,7 +81,6 @@ def main():
     mr_sub = hl.min_rep(mt_subset.locus, mt_subset.alleles)
     mt_subset = mt_subset.key_rows_by(locus=mr_sub.locus, alleles=mr_sub.alleles)
     mt_subset = mt_subset.distinct_by_row()
-
 
     new_intervals = [
         hl.parse_locus_interval(f'[{loc}-{loc}]', reference_genome='GRCh38')
@@ -96,7 +94,6 @@ def main():
         print(f'{n_collisions} normalized keys collide with existing rows; dropping duplicates')
         collision_ht = mt_collisions.rows().select().key_by('locus', 'alleles')
         mt_subset = mt_subset.anti_join_rows(collision_ht)
-
 
     mt_clean.union_rows(mt_subset).write(args.output, overwrite=args.overwrite)
     print(f'Done. Wrote normalized MatrixTable to {args.output}')
