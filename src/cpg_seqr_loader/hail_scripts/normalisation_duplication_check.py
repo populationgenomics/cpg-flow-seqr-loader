@@ -9,9 +9,10 @@ Strategy (all data stays in Hail — no collect to driver):
   6. Cross-collision check against existing correct rows via semi_join
   7. union_rows + write
 """
-import loguru
+
 import argparse
 
+import loguru
 from cpg_utils import config, hail_batch
 
 import hail as hl
@@ -42,8 +43,7 @@ def main():
 
     # Filter to only rows whose representation changed
     mt_changed = mt_annotated.filter_rows(
-        (mt_annotated.normal_locus != mt_annotated.locus)
-        | (mt_annotated.normal_alleles != mt_annotated.alleles),
+        (mt_annotated.normal_locus != mt_annotated.locus) | (mt_annotated.normal_alleles != mt_annotated.alleles),
     )
 
     # Checkpoint
@@ -55,7 +55,7 @@ def main():
     loguru.logger.info(f'Saved the small subset of changes to be made, {changed_path}')
 
     if n_changed == 0:
-        loguru.logger.info(f'Done. No normalization needed. Happy Days')
+        loguru.logger.info('Done. No normalization needed. Happy Days')
         return
 
     # Remove unnormalized rows from original MT
@@ -71,10 +71,14 @@ def main():
     mt_subset = mt_subset.distinct_by_row()
 
     # Check for collisions: do any new keys already exist in the clean data?
-    new_keys = mt_changed.rows().key_by(
-        locus=mt_changed.rows().normal_locus,
-        alleles=mt_changed.rows().normal_alleles,
-    ).select()
+    new_keys = (
+        mt_changed.rows()
+        .key_by(
+            locus=mt_changed.rows().normal_locus,
+            alleles=mt_changed.rows().normal_alleles,
+        )
+        .select()
+    )
     n_collisions = mt_clean.semi_join_rows(new_keys).count_rows()
 
     if n_collisions > 0:
