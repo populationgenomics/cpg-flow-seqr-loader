@@ -51,7 +51,7 @@ def main(
         driver_cores=config.config_retrieve(['combiner', 'driver_cores'], 2),
     )
 
-    partitions = config.config_retrieve(['combiner', 'densify_partitions'], 2000)
+    partitions = config.config_retrieve(['combiner', 'densify_partitions'], 1000)
 
     # check here to see if we can reuse the dense MT
     if not utils.can_reuse(dense_mt_out):
