@@ -59,8 +59,9 @@ def main(
 
         # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
         # however there are bugs that can cause this to error out, so we have an option to bypass this
+        # with a naive coalesce instead, which will just combine partitions after the fact
         if config.config_retrieve(['combiner', 'densify_partitions_naive_coalesce'], False):
-            loguru.logger.info('Using naive coalesce for densification, which may be less efficient...')
+            loguru.logger.info('Using naive coalesce for densification')
             vds = hl.vds.read_vds(vds_in)
             mt = hl.vds.to_dense_mt(vds)
             mt = mt.naive_coalesce(partitions)
