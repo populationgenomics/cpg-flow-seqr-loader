@@ -43,6 +43,12 @@ target_records = 30000
 sg_remove_threshold = 20
 sg_remove_confirm = false
 
+# Number of paritions to use when densifying VDS to MT
+densify_partitions = 1000
+# option to use naive coalesce for densification, which may be less efficient but can bypass
+# some bugs related to Hail calculating partitions based on the VDS
+densify_partitions_naive_coalesce = false
+
 [annotate_dataset]
 # highem, standard, or a string, e.g. "4Gi"
 worker_memory = "highmem"
