@@ -27,6 +27,7 @@ from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
 def main(
     vds_in: str,
     dense_mt_out: str,
+    checkpoint_path: str,
     sites_only: str | None = None,
     separate_header: str | None = None,
 ) -> None:
@@ -78,6 +79,8 @@ def main(
             site_dp=hl.agg.sum(mt.DP),
             ANS=hl.agg.count_where(hl.is_defined(mt.LGT)) * 2,
         )
+
+        mt = mt.checkpoint(checkpoint_path, _read_if_exists=True)
 
         # content shared with large_cohort.site_only_vcf.py
         info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
@@ -170,6 +173,11 @@ def cli_main():
         required=True,
     )
     parser.add_argument(
+        '--checkpoint',
+        help='Path for a densified MT checkpoint.',
+        required=True,
+    )
+    parser.add_argument(
         '--sites_only',
         help='Specify an output path for a sites-only VCF, or None',
     )
@@ -181,6 +189,7 @@ def cli_main():
     main(
         vds_in=args.input,
         dense_mt_out=args.output,
+        checkpoint_path=args.checkpoint,
         sites_only=args.sites_only,
         separate_header=args.separate_header,
     )

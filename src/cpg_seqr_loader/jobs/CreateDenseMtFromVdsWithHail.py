@@ -11,6 +11,7 @@ def generate_densify_jobs(
     output_mt: Path,
     output_sites_only: str,
     output_separate_header: str,
+    checkpoint: str,
     job_attrs: dict[str, str],
 ) -> 'BashJob':
     job = hail_batch.get_batch().new_bash_job(
@@ -24,6 +25,7 @@ def generate_densify_jobs(
         python -m cpg_seqr_loader.scripts.densify_VDS_to_MT \\
             --input {input_vds!s} \\
             --output {output_mt!s} \\
+            --checkpoint {checkpoint!s} \\
             --sites_only {output_sites_only!s} \\
             --separate_header {output_separate_header!s}
         """
