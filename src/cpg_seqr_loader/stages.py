@@ -108,7 +108,7 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
 
-        checkpoint_path = self.tmp_prefix / f'{multicohort.alignment_inputs_hash}_densified.vcf.bgz'
+        checkpoint_path = self.tmp_prefix / f'{multicohort.alignment_inputs_hash}_densified_checkpoint.mt'
 
         job = generate_densify_jobs(
             input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
