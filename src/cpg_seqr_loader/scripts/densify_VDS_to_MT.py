@@ -174,7 +174,7 @@ def cli_main():
     )
     parser.add_argument(
         '--checkpoint',
-        help='Path for a chekpoint directory.',
+        help='Path for a densified MT checkpoint.',
         required=True,
     )
     parser.add_argument(
