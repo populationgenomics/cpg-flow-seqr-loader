@@ -108,14 +108,20 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
 
-        checkpoint_path = self.tmp_prefix / f'{multicohort.get_alignment_inputs_hash()}_densified_checkpoint.mt'
+        # there was a correction to underlying cpg-flow behaviour, fixing MC.hash, but to reduce costs and resume from
+        # prior work during a troubleshooting phase, we want to manually set a specific path to resume from.
+        # ideally we phase this back out, as it could be a bit of a footgun
+        checkpoint_path = config.config_retrieve(
+            ['combiner', 'densify_checkpoint'],
+            str(self.tmp_prefix / f'{multicohort.get_alignment_inputs_hash()}_densified_checkpoint.mt'),
+        )
 
         job = generate_densify_jobs(
             input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
             output_mt=outputs['mt'],
             output_sites_only=outputs['hps_vcf_dir'],
             output_separate_header=outputs['separate_header_vcf_dir'],
-            checkpoint=str(checkpoint_path),
+            checkpoint=checkpoint_path,
             job_attrs=self.get_job_attrs(multicohort),
         )
         return self.make_outputs(target=multicohort, data=outputs, jobs=job)

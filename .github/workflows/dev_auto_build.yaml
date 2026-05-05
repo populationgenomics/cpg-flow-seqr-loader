@@ -1,9 +1,11 @@
 name: Autobuild development image
-on:
-  push:
-    branches-ignore:
-      - main
-  workflow_dispatch:
+
+on: [pull_request]
+
+# only build one set of images
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
 
 permissions:
   id-token: write
@@ -21,7 +23,6 @@ jobs:
   get_next_version:
     runs-on: ubuntu-latest
     environment: development
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     outputs:
       matrix: ${{ steps.get_next_version.outputs.next_version }}
     steps:
@@ -59,7 +60,7 @@ jobs:
     environment: development
     needs:
       - get_next_version
-    if: ${{ needs.get_next_version.outputs.matrix != '{"include":[]}' && needs.get_next_version.outputs.matrix != '' && github.event_name == 'push' }}
+    if: ${{ needs.get_next_version.outputs.matrix != '{"include":[]}' && needs.get_next_version.outputs.matrix != ''}} && github.event.pull_request.draft == false
     strategy:
       matrix: ${{ fromJson(needs.get_next_version.outputs.matrix) }}
     steps:
