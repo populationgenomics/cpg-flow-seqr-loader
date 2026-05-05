@@ -59,7 +59,7 @@ def densify(vds_path: str, partitions: int, checkpoint_path: str) -> hl.MatrixTa
         ANS=hl.agg.count_where(hl.is_defined(mt.LGT)) * 2,
     )
 
-    return mt.checkpoint(checkpoint_path)
+    return mt.checkpoint(checkpoint_path, overwrite=True)
 
 
 def generate_mt_info(mt: hl.MatrixTable) -> hl.MatrixTable:
