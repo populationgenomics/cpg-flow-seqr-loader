@@ -193,14 +193,16 @@ def main(gnomad: str, count: list[int], meres: str, output: str):
     centromeres, telomeres = read_meres(meres)
 
     for interval_count in count:
-        new_intervals = get_naive_intervals(ht, interval_count)
-        better_intervals = polish_intervals(new_intervals, centromeres, telomeres)
+        intervals = get_naive_intervals(ht, interval_count)
+
+        # for now, removing the contig-spanning and telo/cetromere bridging interval reshaping logic
+        # better_intervals = polish_intervals(intervals, centromeres, telomeres)
 
         # and shove on a single region for mitochondria
-        better_intervals.append(('chrM', 1, 16569))
+        intervals.append(('chrM', 1, 16569))
 
         with (output_root / f'{interval_count}_var_balanced_intervals.bed').open('w') as f:
-            for contig, start, end in better_intervals:
+            for contig, start, end in intervals:
                 f.write(f'{contig}\t{start}\t{end}\n')
 
 
