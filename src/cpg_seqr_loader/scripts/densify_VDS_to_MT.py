@@ -24,6 +24,120 @@ from cpg_seqr_loader.hail_scripts.sparse_mt import default_compute_info
 from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
 
 
+def densify(vds_path: str, partitions: int, checkpoint_path: str) -> hl.MatrixTable:
+    """
+    Segregating the densification logic out here - this method reads in a VDS, densifies, repartitions, and checkpoints
+
+    Args:
+        vds_path: where to find the VDS input (in GCS)
+        partitions: how many partitions to use
+        checkpoint_path: where to write the resulting MT (in GCS)
+
+    Returns:
+        the resulting MatrixTable
+    """
+
+    # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
+    # however there are bugs that can cause this to error out, so we have an option to bypass this
+    # with a naive coalesce instead, which will just combine partitions after the fact
+    if config.config_retrieve(['combiner', 'densify_partitions_naive_coalesce'], False):
+        loguru.logger.info('Using naive coalesce for densification')
+        vds = hl.vds.read_vds(vds_path)
+        mt = hl.vds.to_dense_mt(vds)
+        mt = mt.naive_coalesce(partitions)
+    else:
+        vds = hl.vds.read_vds(vds_path, n_partitions=partitions)
+        mt = hl.vds.to_dense_mt(vds)
+
+    # taken from _filter_rows_and_add_tags in large_cohort/site_only_vcf.py
+    # remove any monoallelic or non-ref-in-any-sample sites
+    mt = mt.filter_rows((hl.len(mt.alleles) > 1) & (hl.agg.any(mt.LGT.is_non_ref())))
+
+    # annotate site-level DP to avoid name collision
+    mt = mt.annotate_rows(
+        site_dp=hl.agg.sum(mt.DP),
+        ANS=hl.agg.count_where(hl.is_defined(mt.LGT)) * 2,
+    )
+
+    return mt.checkpoint(checkpoint_path)
+
+
+def generate_mt_info(mt: hl.MatrixTable) -> hl.MatrixTable:
+    """
+    Applies all the methods to generate GATK-similar INFO attributes on a Combined VDS -> MT.
+
+    Args:
+        mt: MatrixTable
+
+    Returns:
+        annotated MatrixTable
+    """
+    # content shared with large_cohort.site_only_vcf.py
+    info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
+    info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
+
+    info_ht = adjust_vcf_incompatible_types(
+        info_ht,
+        # with default INFO_VCF_AS_PIPE_DELIMITED_FIELDS, AS_VarDP will be converted
+        # into a pipe-delimited value e.g.: VarDP=|132.1|140.2
+        # which breaks VQSR parser (it doesn't recognise the delimiter and treats
+        # it as an array with a single string value "|132.1|140.2", leading to
+        # an IndexOutOfBound exception when trying to access value for second allele)
+        pipe_delimited_annotations=[],
+    )
+
+    # annotate with densified representations
+    mt = mt.annotate_entries(
+        GT=hl.vds.lgt_to_gt(mt.LGT, mt.LA),
+        AD=hl.vds.local_to_global(
+            mt.LAD,
+            mt.LA,
+            n_alleles=hl.len(mt.alleles),
+            fill_value=0,
+            number='R',
+        ),
+        PL=hl.vds.local_to_global(
+            mt.LPL,
+            mt.LA,
+            n_alleles=hl.len(mt.alleles),
+            fill_value=999,
+            number='G',
+        ),
+    )
+
+    mt = mt.drop('gvcf_info')
+
+    # annotate this info back into the main MatrixTable
+    return mt.annotate_rows(info=info_ht[mt.row_key].info)
+
+
+def split_and_normalise(mt: hl.MatrixTable) -> hl.MatrixTable:
+    """
+    Runs the multiallelic splitting, and variant representation normalisation process.
+
+    Args:
+        mt:
+
+    Returns:
+
+    """
+
+    # split out multiallelic rows on the dense representation
+    mt = hl.split_multi_hts(mt)
+
+    # adjust the AC field after splitting (not handled in split_multi, see method docstring)
+    mt = mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
+
+    # find the minimal representation for each variant
+    mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
+
+    # rotate the table key(s)
+    return mt.key_rows_by(
+        locus=mt.minrep.locus,
+        alleles=mt.minrep.alleles,
+    )
+
+
 def main(
     vds_in: str,
     dense_mt_out: str,
@@ -41,6 +155,7 @@ def main(
     Args:
         vds_in (str):
         dense_mt_out (str):
+        checkpoint_path (str): path to save/resume from a checkpoint MT post densification
         sites_only (str): optional, if used write a sites-only VCF directory to this location
         separate_header (str): optional, write a sites-only VCF directory with a separate header to this location
     """
@@ -58,82 +173,20 @@ def main(
     if not utils.can_reuse(dense_mt_out):
         loguru.logger.info(f'Densifying data, using {partitions} partitions')
 
-        # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
-        # however there are bugs that can cause this to error out, so we have an option to bypass this
-        # with a naive coalesce instead, which will just combine partitions after the fact
-        if config.config_retrieve(['combiner', 'densify_partitions_naive_coalesce'], False):
-            loguru.logger.info('Using naive coalesce for densification')
-            vds = hl.vds.read_vds(vds_in)
-            mt = hl.vds.to_dense_mt(vds)
-            mt = mt.naive_coalesce(partitions)
+        # and check here to see if we can re-use the checkpoint
+        if utils.can_reuse(checkpoint_path):
+            loguru.logger.info(f'Resuming from a densified checkpoint: {checkpoint_path}')
+            mt = hl.read_matrix_table(checkpoint_path)
+
         else:
-            vds = hl.vds.read_vds(vds_in, n_partitions=partitions)
-            mt = hl.vds.to_dense_mt(vds)
+            loguru.logger.info(f'Running a VDS -> with densification, checkpointing to {checkpoint_path}')
+            mt = densify(vds_in, partitions, checkpoint_path)
 
-        # taken from _filter_rows_and_add_tags in large_cohort/site_only_vcf.py
-        # remove any monoallelic or non-ref-in-any-sample sites
-        mt = mt.filter_rows((hl.len(mt.alleles) > 1) & (hl.agg.any(mt.LGT.is_non_ref())))
+        # run the INFO field generation/annotation process
+        mt = generate_mt_info(mt)
 
-        # annotate site-level DP to avoid name collision
-        mt = mt.annotate_rows(
-            site_dp=hl.agg.sum(mt.DP),
-            ANS=hl.agg.count_where(hl.is_defined(mt.LGT)) * 2,
-        )
-
-        mt = mt.checkpoint(checkpoint_path, _read_if_exists=True)
-
-        # content shared with large_cohort.site_only_vcf.py
-        info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
-        info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
-
-        info_ht = adjust_vcf_incompatible_types(
-            info_ht,
-            # with default INFO_VCF_AS_PIPE_DELIMITED_FIELDS, AS_VarDP will be converted
-            # into a pipe-delimited value e.g.: VarDP=|132.1|140.2
-            # which breaks VQSR parser (it doesn't recognise the delimiter and treats
-            # it as an array with a single string value "|132.1|140.2", leading to
-            # an IndexOutOfBound exception when trying to access value for second allele)
-            pipe_delimited_annotations=[],
-        )
-
-        # annotate with densified representations
-        mt = mt.annotate_entries(
-            GT=hl.vds.lgt_to_gt(mt.LGT, mt.LA),
-            AD=hl.vds.local_to_global(
-                mt.LAD,
-                mt.LA,
-                n_alleles=hl.len(mt.alleles),
-                fill_value=0,
-                number='R',
-            ),
-            PL=hl.vds.local_to_global(
-                mt.LPL,
-                mt.LA,
-                n_alleles=hl.len(mt.alleles),
-                fill_value=999,
-                number='G',
-            ),
-        )
-
-        mt = mt.drop('gvcf_info')
-
-        # annotate this info back into the main MatrixTable
-        mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
-
-        # split out multiallelic rows on the dense representation
-        mt = hl.split_multi_hts(mt)
-
-        # adjust the AC field after splitting (not handled in split_multi, see method docstring)
-        mt = mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
-
-        # find the minimal representation for each variant
-        mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
-
-        # rotate the table key(s)
-        mt = mt.key_rows_by(
-            locus=mt.minrep.locus,
-            alleles=mt.minrep.alleles,
-        )
+        # run splitting and normalisation
+        mt = split_and_normalise(mt)
 
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
