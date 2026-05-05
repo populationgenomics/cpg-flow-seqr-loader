@@ -116,10 +116,10 @@ def split_and_normalise(mt: hl.MatrixTable) -> hl.MatrixTable:
     Runs the multiallelic splitting, and variant representation normalisation process.
 
     Args:
-        mt:
+        mt: MatrixTable
 
     Returns:
-
+        the same MT data, with normalised and minimally-represented variants
     """
 
     # split out multiallelic rows on the dense representation
