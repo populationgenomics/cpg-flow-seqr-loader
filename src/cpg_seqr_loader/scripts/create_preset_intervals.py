@@ -117,7 +117,7 @@ def read_meres(meres_path: str) -> tuple[dict[str, tuple[int, int]], dict[str, l
 
     logging.info(f'Reading centromere and telomere regions from {meres_path}')
 
-    with open(meres_path, encoding='utf-8') as f:
+    with to_path(meres_path).open('r', encoding='utf-8') as f:
         for line in f:
             if line.startswith(('@SQ', '@HD')):
                 continue
