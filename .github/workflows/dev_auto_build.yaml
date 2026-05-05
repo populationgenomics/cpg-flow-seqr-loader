@@ -1,9 +1,11 @@
 name: Autobuild development image
+
 on:
-  push:
-    branches-ignore:
-      - main
-  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   id-token: write
