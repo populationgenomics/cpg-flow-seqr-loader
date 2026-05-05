@@ -4,7 +4,7 @@ on: [pull_request]
 
 # only build one set of images
 concurrency:
-  group: ${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref }}
   cancel-in-progress: true
 
 permissions:
