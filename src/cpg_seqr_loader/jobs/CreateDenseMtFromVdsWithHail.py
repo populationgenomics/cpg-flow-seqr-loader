@@ -14,11 +14,10 @@ def generate_densify_jobs(
     checkpoint: str,
     job_attrs: dict[str, str],
 ) -> 'BashJob':
-    job = hail_batch.get_batch().new_bash_job(
-        'Densify VDS and export MT',
-        attributes=job_attrs | {'tool': 'hail'},
-    )
+    job = hail_batch.get_batch().new_bash_job('Densify VDS and export MT', attributes=job_attrs | {'tool': 'hail'})
     job.image(config.config_retrieve(['workflow', 'driver_image']))
+
+    job.spot(is_spot=False)
 
     job.command(
         f"""
