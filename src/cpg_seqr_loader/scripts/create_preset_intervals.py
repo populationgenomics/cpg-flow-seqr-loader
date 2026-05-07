@@ -178,13 +178,18 @@ def polish_intervals(
     return new_intervals
 
 
-def main(gnomad: str, count: list[int], meres: str, output: str):
+def main(input_path: str, count: list[int], meres: str, output: str):
     """Run all the things!"""
 
     hail_batch.init_batch()
 
-    # read in the gnomAD table
-    ht = hl.read_table(gnomad)
+    # read the input object using an appropriate method
+    if input_path.endswith('.mt'):
+        ht = hl.read_matrix_table(input_path).rows()
+    elif input_path.endswith('.ht'):
+        ht = hl.read_table(input_path)
+    else:
+        raise Exception(f'Unknown input format: {input_path}')
 
     # set up a path to do this once per interval count
     output_root = to_path(output)
@@ -196,7 +201,7 @@ def main(gnomad: str, count: list[int], meres: str, output: str):
         intervals = get_naive_intervals(ht, interval_count)
 
         # for now, removing the contig-spanning and telo/cetromere bridging interval reshaping logic
-        # better_intervals = polish_intervals(intervals, centromeres, telomeres)
+        # better_intervals = polish_intervals(intervals, centromeres, telomeres)  # noqa: ERA001
 
         # and shove on a single region for mitochondria
         intervals.append(('chrM', 1, 16569))
@@ -210,7 +215,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     parser = ArgumentParser()
-    parser.add_argument('--gnomad', required=True, type=str, help='Path to the gnomAD HT.')
+    parser.add_argument('--input_path', required=True, type=str, help='Path to a Hail MT or HT.')
     parser.add_argument(
         '--count',
         nargs='+',
@@ -230,4 +235,4 @@ if __name__ == '__main__':
         help='Path to centro/telomere regions file.',
     )
     args = parser.parse_args()
-    main(args.gnomad, args.count, args.meres, args.output)
+    main(input_path=args.input_path, count=args.count, meres=args.meres, output=args.output)
