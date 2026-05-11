@@ -48,9 +48,8 @@ def main(
         worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
     )
 
-    # generate these in the job, instead of passing through
+    # this may be overwritten
     force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'])
-    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
     # Load from save, if supplied (log correctly depending on force_new_combiner)
     if combiner_plan and force_new_combiner:
@@ -123,23 +122,31 @@ def main(
             vds.write(temp_path)
             vds_path = temp_path
 
+    # final round of combiner arguments from config
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
+    # for Combining phase, aim for a high number of partitions, ~5k
+    vds_intervals_path = config.config_retrieve(['combiner', 'vds_intervals', sequencing_type])
+    if not vds_intervals_path:
+        raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
+    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome='GRCh38').interval.collect()
+
     # 2 - do we need to run the combiner?
-    combiner = hl.vds.new_combiner(
+    hl.vds.new_combiner(
         output_path=output_vds_path,
         save_path=combiner_plan,
         gvcf_paths=gvcf_paths,
         vds_paths=[vds_path] if vds_path else None,
-        reference_genome=hail_batch.genome_build(),
+        reference_genome='GRCh38',
         temp_path=tmp_prefix,
-        use_exome_default_intervals=sequencing_type == 'exome',
-        use_genome_default_intervals=sequencing_type == 'genome',
         force=force_new_combiner,
+        intervals=vds_intervals,
         branch_factor=config.config_retrieve(['combiner', 'branch_factor']),
-        target_records=config.config_retrieve(['combiner', 'target_records']),
+        target_records=config.config_retrieve(
+            ['combiner', 'target_records']
+        ),  # keep this high to prevent hail overriding preset partitions
         gvcf_batch_size=config.config_retrieve(['combiner', 'gvcf_batch_size']),
-    )
-
-    combiner.run()
+    ).run()
 
 
 if __name__ == '__main__':

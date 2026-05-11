@@ -24,30 +24,28 @@ from cpg_seqr_loader.hail_scripts.sparse_mt import default_compute_info
 from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
 
 
-def densify(vds_path: str, partitions: int, checkpoint_path: str) -> hl.MatrixTable:
+def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
     """
     Segregating the densification logic out here - this method reads in a VDS, densifies, repartitions, and checkpoints
 
     Args:
         vds_path: where to find the VDS input (in GCS)
-        partitions: how many partitions to use
         checkpoint_path: where to write the resulting MT (in GCS)
 
     Returns:
         the resulting MatrixTable
     """
 
-    # providing n_partitions here gets Hail to calculate the intervals per partition on the VDS var and ref data
-    # however there are bugs that can cause this to error out, so we have an option to bypass this
-    # with a naive coalesce instead, which will just combine partitions after the fact
-    if config.config_retrieve(['combiner', 'densify_partitions_naive_coalesce'], False):
-        loguru.logger.info('Using naive coalesce for densification')
-        vds = hl.vds.read_vds(vds_path)
-        mt = hl.vds.to_dense_mt(vds)
-        mt = mt.naive_coalesce(partitions)
-    else:
-        vds = hl.vds.read_vds(vds_path, n_partitions=partitions)
-        mt = hl.vds.to_dense_mt(vds)
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    intervals_path = config.config_retrieve(['combiner', 'vds_intervals', sequencing_type])
+    if not intervals_path:
+        raise ValueError(f'Provided path for MT intervals: {intervals_path} - please provide a real path.')
+
+    intervals = hl.import_bed(intervals_path, reference_genome='GRCh38').interval.collect()
+
+    # read the VDS with pre-defined intervals
+    vds = hl.vds.read_vds(vds_path, intervals=intervals)
+    mt = hl.vds.to_dense_mt(vds)
 
     # taken from _filter_rows_and_add_tags in large_cohort/site_only_vcf.py
     # remove any monoallelic or non-ref-in-any-sample sites
@@ -167,12 +165,8 @@ def main(
         driver_cores=config.config_retrieve(['combiner', 'driver_cores'], 2),
     )
 
-    partitions = config.config_retrieve(['combiner', 'densify_partitions'], 1000)
-
     # check here to see if we can reuse the dense MT
     if not utils.can_reuse(dense_mt_out):
-        loguru.logger.info(f'Densifying data, using {partitions} partitions')
-
         # and check here to see if we can re-use the checkpoint
         if utils.can_reuse(checkpoint_path):
             loguru.logger.info(f'Resuming from a densified checkpoint: {checkpoint_path}')
@@ -180,7 +174,7 @@ def main(
 
         else:
             loguru.logger.info(f'Running a VDS -> with densification, checkpointing to {checkpoint_path}')
-            mt = densify(vds_in, partitions, checkpoint_path)
+            mt = densify(vds_in, checkpoint_path)
 
         # run the INFO field generation/annotation process
         mt = generate_mt_info(mt)
