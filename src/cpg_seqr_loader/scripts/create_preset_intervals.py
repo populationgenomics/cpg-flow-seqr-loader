@@ -203,7 +203,10 @@ def main(input_path: str, count: list[int], meres: str, output: str):
         # for now, removing the contig-spanning and telo/cetromere bridging interval reshaping logic
         # better_intervals = polish_intervals(intervals, centromeres, telomeres)  # noqa: ERA001
 
-        # and shove on a single region for mitochondria
+        # and shove on a single region for mitochondria, removing a previous mito interval if it was in the list
+        if intervals[-1][0] == 'chrM':
+            _chr_m_pop = intervals.pop(-1)
+
         intervals.append(('chrM', 1, 16569))
 
         with (output_root / f'{interval_count}_var_balanced_intervals.bed').open('w') as f:
