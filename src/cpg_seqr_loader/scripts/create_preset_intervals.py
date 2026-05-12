@@ -200,11 +200,23 @@ def main(input_path: str, count: list[int], meres: str, output: str):
     for interval_count in count:
         intervals = get_naive_intervals(ht, interval_count)
 
-        # for now, removing the contig-spanning and telo/cetromere bridging interval reshaping logic
-        # better_intervals = polish_intervals(intervals, centromeres, telomeres)  # noqa: ERA001
+        # do a little bit of interval grooming - hail will only divide the variants it sees, so there is a possibility
+        # of as-yet-unseen variants occuring before the observed chr1 variants, or after the final observed variant
 
-        # and shove on a single region for mitochondria
-        intervals.append(('chrM', 1, 16569))
+        # set the first base of the first interval on chr1 to 1, to maximise included regions
+        first_chr, first_start, first_end = intervals[0]
+        intervals[0] = (first_chr, 1, first_end)
+
+        # remove a final interval on chrM if present
+        if intervals[-1][0] == 'chrM':
+            _chr_m_pop = intervals.pop(-1)
+
+        # maximise the final non-chrM interval to the end of the contig
+        last_chr, last_start, last_end = intervals[-1]
+        intervals[-1] = (last_chr, last_start, hl.get_reference('GRCh38').lengths[last_chr])
+
+        # and shove on a single max region for mitochondria, removing a previous mito interval if it was in the list
+        intervals.append(('chrM', 1, hl.get_reference('GRCh38').lengths['chrM']))
 
         with (output_root / f'{interval_count}_var_balanced_intervals.bed').open('w') as f:
             for contig, start, end in intervals:

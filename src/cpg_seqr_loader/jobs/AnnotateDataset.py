@@ -21,6 +21,7 @@ def create_annotate_dataset_job(
     job.cpu(2).memory('highmem').storage('10Gi')
 
     job.image(config.config_retrieve(['workflow', 'driver_image']))
+    job.spot(False)
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.annotate_dataset \\

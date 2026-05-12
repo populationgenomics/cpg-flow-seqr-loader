@@ -35,19 +35,22 @@ branch_factor = 50
 # the number of intermediate merges to run in parallel with each step
 gvcf_batch_size = 5
 
-# when merging multiple VDS, we find the largest VDS, repartition to target_records variants per partition
-# then repartition all VDSs to match those intervals prior to merging
-target_records = 30000
+# Hail's default interval strategy + target number of 'records' (variants) per interval is very low, leading to a high
+# level of fragmentation. Instead of accepting those irritating constraints we provide our own intervals, and overwrite
+# default arguments like target_records which would override those and deliver high partition counts
+target_records = 30000000
 
 # if the process will remove a large number of SGs from the combiner, require this config setting to confirm intent
 sg_remove_threshold = 20
 sg_remove_confirm = false
 
-# Number of paritions to use when densifying VDS to MT
-densify_partitions = 1000
-# option to use naive coalesce for densification, which may be less efficient but can bypass
-# some bugs related to Hail calculating partitions based on the VDS
-densify_partitions_naive_coalesce = false
+[combiner.densify_intervals]
+exome = 'gs://cpg-seqr-main/exome_based_intervals/100_var_balanced_intervals.bed'
+genome = 'gs://cpg-seqr-main/genome_based_intervals/1000_var_balanced_intervals.bed'
+
+[combiner.vds_intervals]
+exome = 'gs://cpg-seqr-main/exome_based_intervals/2000_var_balanced_intervals.bed'
+genome = 'gs://cpg-seqr-main/genome_based_intervals/5000_var_balanced_intervals.bed'
 
 [annotate_dataset]
 # highem, standard, or a string, e.g. "4Gi"

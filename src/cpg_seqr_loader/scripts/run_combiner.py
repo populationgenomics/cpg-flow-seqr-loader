@@ -9,7 +9,7 @@ import logging
 
 import loguru
 from cpg_flow import utils
-from cpg_utils import config, hail_batch
+from cpg_utils import config, hail_batch, to_path
 
 import hail as hl
 
@@ -48,18 +48,21 @@ def main(
         worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
     )
 
-    # generate these in the job, instead of passing through
+    # allow force-new from config. This would force a fresh combining of the input gVCFs and prior VDSs as appropriate
+    # it would not restart a completely fresh VDS from component gVCFs
+    # this is relevant for instances where a previous combiner attempt started, but failed due to resourcing issues, and
+    # we want to start fresh with new intervals/partition strategy
     force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'])
-    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
     # Load from save, if supplied (log correctly depending on force_new_combiner)
     if combiner_plan and force_new_combiner:
         loguru.logger.info(f'Combiner plan {combiner_plan} will be ignored/written new')
 
-    elif combiner_plan:
-        loguru.logger.info(f'Resuming combiner plan from {combiner_plan}')
+    # combiner plan as an argument comes from the Stage, so it always has a real value, but the file may not exist.
+    elif combiner_plan and to_path(combiner_plan).exists():
+        loguru.logger.info(f'Resuming combiner plan from {combiner_plan}.')
 
-    # do we have new content to add?
+    # do we have new gVCFs to add?
     if gvcfs_to_combine_file is not None:
         # if gvcfs_to_combine is a file, read it and split into a list
         with open(gvcfs_to_combine_file) as f:
@@ -67,7 +70,7 @@ def main(
     else:
         gvcf_paths = None
 
-    # do we have any SGs to remove?
+    # do we have any SGs to remove? i.e. scenarios where we have to remove SGs due to retraction
     if sgs_to_remove_file is not None:
         # if gvcfs_to_combine is a file, read it and split into a list
         with open(sgs_to_remove_file) as f:
@@ -85,6 +88,7 @@ def main(
     else:
         sgs_to_remove = None
 
+    # if neither of these are true, we don't need to be here - the Stage should not be running.
     if not (sgs_to_remove or gvcf_paths):
         raise ValueError('No samples to remove or gVCFs to add - please provide at least one of these')
 
@@ -123,23 +127,33 @@ def main(
             vds.write(temp_path)
             vds_path = temp_path
 
+    # final round of combiner arguments from config
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
+    # for Combining phase, aim for a high number of partitions, ~5k
+    vds_intervals_path = config.config_retrieve(['combiner', 'vds_intervals', sequencing_type])
+
+    if not vds_intervals_path:
+        raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
+
+    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome=hail_batch.genome_build()).interval.collect()
+
     # 2 - do we need to run the combiner?
-    combiner = hl.vds.new_combiner(
+    hl.vds.new_combiner(
         output_path=output_vds_path,
         save_path=combiner_plan,
         gvcf_paths=gvcf_paths,
         vds_paths=[vds_path] if vds_path else None,
         reference_genome=hail_batch.genome_build(),
         temp_path=tmp_prefix,
-        use_exome_default_intervals=sequencing_type == 'exome',
-        use_genome_default_intervals=sequencing_type == 'genome',
         force=force_new_combiner,
+        intervals=vds_intervals,
         branch_factor=config.config_retrieve(['combiner', 'branch_factor']),
-        target_records=config.config_retrieve(['combiner', 'target_records']),
+        target_records=config.config_retrieve(
+            ['combiner', 'target_records']
+        ),  # keep this high to prevent hail overriding preset partitions
         gvcf_batch_size=config.config_retrieve(['combiner', 'gvcf_batch_size']),
-    )
-
-    combiner.run()
+    ).run()
 
 
 if __name__ == '__main__':

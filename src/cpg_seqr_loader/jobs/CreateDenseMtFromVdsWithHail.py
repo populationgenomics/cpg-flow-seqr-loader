@@ -17,7 +17,7 @@ def generate_densify_jobs(
     job = hail_batch.get_batch().new_bash_job('Densify VDS and export MT', attributes=job_attrs | {'tool': 'hail'})
     job.image(config.config_retrieve(['workflow', 'driver_image']))
 
-    job.spot(is_spot=False)
+    job.spot(False)
 
     job.command(
         f"""
