@@ -38,6 +38,7 @@ def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
 
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
     intervals_path = config.config_retrieve(['combiner', 'vds_intervals', sequencing_type])
+
     if not intervals_path:
         raise ValueError(f'Provided path for MT intervals: {intervals_path} - please provide a real path.')
 

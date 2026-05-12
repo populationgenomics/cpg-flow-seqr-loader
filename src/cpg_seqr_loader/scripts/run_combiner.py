@@ -127,8 +127,10 @@ def main(
 
     # for Combining phase, aim for a high number of partitions, ~5k
     vds_intervals_path = config.config_retrieve(['combiner', 'vds_intervals', sequencing_type])
+
     if not vds_intervals_path:
         raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
+
     vds_intervals = hl.import_bed(vds_intervals_path, reference_genome='GRCh38').interval.collect()
 
     # 2 - do we need to run the combiner?
