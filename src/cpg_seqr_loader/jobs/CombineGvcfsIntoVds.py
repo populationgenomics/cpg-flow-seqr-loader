@@ -105,7 +105,7 @@ def create_combiner_jobs(
 
     # set this job to be non-spot (i.e. non-preemptible)
     # previous issues with preemptible VMs led to multiple simultaneous QOB groups processing the same data
-    job.spot(config.config_retrieve(['workflow', 'preemptible_vms']))
+    job.spot(False)
 
     input_vds_arg = f'--input_vds {vds_path!s}' if vds_path else ''
 

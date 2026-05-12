@@ -20,6 +20,7 @@ def create_annotate_cohort_job(
     )
     job.image(config.config_retrieve(['workflow', 'driver_image']))
     job.cpu(2).memory('highmem').storage('10Gi')
+    job.spot(False)
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.annotate_cohort \\
