@@ -136,7 +136,7 @@ def main(
     if not vds_intervals_path:
         raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
 
-    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome='GRCh38').interval.collect()
+    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome=hail_batch.genome_build()).interval.collect()
 
     # 2 - do we need to run the combiner?
     hl.vds.new_combiner(
@@ -144,7 +144,7 @@ def main(
         save_path=combiner_plan,
         gvcf_paths=gvcf_paths,
         vds_paths=[vds_path] if vds_path else None,
-        reference_genome='GRCh38',
+        reference_genome=hail_batch.genome_build(),
         temp_path=tmp_prefix,
         force=force_new_combiner,
         intervals=vds_intervals,
