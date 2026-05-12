@@ -216,7 +216,7 @@ def main(input_path: str, count: list[int], meres: str, output: str):
         intervals[-1] = (last_chr, last_start, hl.get_reference('GRCh38').lengths[last_chr])
 
         # and shove on a single max region for mitochondria, removing a previous mito interval if it was in the list
-        intervals.append(('chrM', 1, 16569))
+        intervals.append(('chrM', 1, hl.get_reference('GRCh38').lengths['chrM']))
 
         with (output_root / f'{interval_count}_var_balanced_intervals.bed').open('w') as f:
             for contig, start, end in intervals:
