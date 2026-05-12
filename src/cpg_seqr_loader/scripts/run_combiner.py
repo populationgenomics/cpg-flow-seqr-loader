@@ -9,7 +9,7 @@ import logging
 
 import loguru
 from cpg_flow import utils
-from cpg_utils import config, hail_batch
+from cpg_utils import config, hail_batch, to_path
 
 import hail as hl
 
@@ -48,17 +48,21 @@ def main(
         worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
     )
 
-    # this may be overwritten
+    # allow force-new from config. This would force a fresh combining of the input gVCFs and prior VDSs as appropriate
+    # it would not restart a completely fresh VDS from component gVCFs
+    # this is relevant for instances where a previous combiner attempt started, but failed due to resourcing issues, and
+    # we want to start fresh with new intervals/partition strategy
     force_new_combiner = config.config_retrieve(['combiner', 'force_new_combiner'])
 
     # Load from save, if supplied (log correctly depending on force_new_combiner)
     if combiner_plan and force_new_combiner:
         loguru.logger.info(f'Combiner plan {combiner_plan} will be ignored/written new')
 
-    elif combiner_plan:
-        loguru.logger.info(f'Resuming combiner plan from {combiner_plan}')
+    # combiner plan as an argument comes from the Stage, so it always has a real value, but the file may not exist.
+    elif combiner_plan and to_path(combiner_plan).exists():
+        loguru.logger.info(f'Resuming combiner plan from {combiner_plan}.')
 
-    # do we have new content to add?
+    # do we have new gVCFs to add?
     if gvcfs_to_combine_file is not None:
         # if gvcfs_to_combine is a file, read it and split into a list
         with open(gvcfs_to_combine_file) as f:
@@ -66,7 +70,7 @@ def main(
     else:
         gvcf_paths = None
 
-    # do we have any SGs to remove?
+    # do we have any SGs to remove? i.e. scenarios where we have to remove SGs due to retraction
     if sgs_to_remove_file is not None:
         # if gvcfs_to_combine is a file, read it and split into a list
         with open(sgs_to_remove_file) as f:
@@ -84,6 +88,7 @@ def main(
     else:
         sgs_to_remove = None
 
+    # if neither of these are true, we don't need to be here - the Stage should not be running.
     if not (sgs_to_remove or gvcf_paths):
         raise ValueError('No samples to remove or gVCFs to add - please provide at least one of these')
 
