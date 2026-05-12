@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 def create_subset_mt_job(
     dataset: targets.Dataset,
-    input_mt: str,
+    input_mt: Path,
     id_file: Path,
     output_mt: Path,
     job_attrs: dict[str, str],
@@ -32,6 +32,7 @@ def create_subset_mt_job(
     )
     job.image(config.config_retrieve(['workflow', 'driver_image']))
     job.cpu(2).memory('highmem').storage('10Gi')
+    job.spot(False)
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.subset_mt_to_dataset \\
