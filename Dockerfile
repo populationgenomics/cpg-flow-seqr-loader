@@ -1,7 +1,7 @@
 FROM australia-southeast1-docker.pkg.dev/cpg-common/images/cpg_hail_gcloud:0.2.138.cpg1-1
 
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV VERSION=0.2.0
+ENV VERSION=0.2.1
 
 WORKDIR /cpg_seqr_loader
 

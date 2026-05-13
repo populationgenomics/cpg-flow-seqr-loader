@@ -13,6 +13,8 @@ from cpg_utils import config, hail_batch, to_path
 
 import hail as hl
 
+from cpg_seqr_loader.utils import read_bed_file_as_intervals
+
 
 def main(
     output_vds_path: str,
@@ -136,7 +138,8 @@ def main(
     if not vds_intervals_path:
         raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
 
-    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome=hail_batch.genome_build()).interval.collect()
+    # read intervals BED file manually
+    vds_intervals: list[hl.Interval] = read_bed_file_as_intervals(vds_intervals_path)
 
     # 2 - do we need to run the combiner?
     hl.vds.new_combiner(

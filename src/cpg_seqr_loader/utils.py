@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import loguru
 from cpg_flow import targets
-from cpg_utils import Path, config, hail_batch
+from cpg_utils import Path, config, hail_batch, to_path
 from metamist.graphql import gql, query
 
 import hail as hl
@@ -119,6 +119,24 @@ SPECIFIC_VDS_QUERY = gql(
     }
 """,
 )
+
+
+def read_bed_file_as_intervals(bed_path: str) -> list[hl.Interval]:
+    """Manually interpret an input BED file as a series of Intervals."""
+    # read intervals BED file manually
+    intervals: list[hl.Interval] = []
+    with to_path(bed_path).open() as bed_handle:
+        for line in bed_handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            chrom, start, end = stripped.split()[:3]
+
+            start_locus = hl.Locus(chrom, int(start) + 1, reference_genome='GRCh38')
+            end_locus = hl.Locus(chrom, int(end), reference_genome='GRCh38')
+            intervals.append(hl.Interval(start_locus, end_locus, includes_start=True, includes_end=True))
+    return intervals
 
 
 @functools.cache

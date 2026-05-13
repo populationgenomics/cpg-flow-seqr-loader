@@ -22,6 +22,7 @@ import hail as hl
 
 from cpg_seqr_loader.hail_scripts.sparse_mt import default_compute_info
 from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
+from cpg_seqr_loader.utils import read_bed_file_as_intervals
 
 
 def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
@@ -42,7 +43,8 @@ def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
     if not intervals_path:
         raise ValueError(f'Provided path for MT intervals: {intervals_path} - please provide a real path.')
 
-    intervals = hl.import_bed(intervals_path, reference_genome=hail_batch.genome_build()).interval.collect()
+    # read intervals BED file manually
+    intervals: list[hl.Interval] = read_bed_file_as_intervals(intervals_path)
 
     # read the VDS with pre-defined intervals
     vds = hl.vds.read_vds(vds_path, intervals=intervals)
