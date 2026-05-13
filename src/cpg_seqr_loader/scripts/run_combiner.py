@@ -136,7 +136,19 @@ def main(
     if not vds_intervals_path:
         raise ValueError(f'Provided path for VDS intervals: {vds_intervals_path} - please provide a real path.')
 
-    vds_intervals = hl.import_bed(vds_intervals_path, reference_genome=hail_batch.genome_build()).interval.collect()
+    # read intervals BED file manually
+    vds_intervals: list[hl.Interval] = []
+    with to_path(vds_intervals_path).open() as bed_handle:
+        for line in bed_handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            chrom, start, end = stripped.split()[:3]
+
+            start_locus = hl.Locus(chrom, int(start) + 1, reference_genome='GRCh38')
+            end_locus = hl.Locus(chrom, int(end), reference_genome='GRCh38')
+            vds_intervals.append(hl.Interval(start_locus, end_locus, includes_start=True, includes_end=True))
 
     # 2 - do we need to run the combiner?
     hl.vds.new_combiner(
