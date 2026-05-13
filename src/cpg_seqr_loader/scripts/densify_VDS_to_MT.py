@@ -16,12 +16,13 @@ import argparse
 
 import loguru
 from cpg_flow import utils
-from cpg_utils import config, hail_batch, to_path
+from cpg_utils import config, hail_batch
 
 import hail as hl
 
 from cpg_seqr_loader.hail_scripts.sparse_mt import default_compute_info
 from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
+from cpg_seqr_loader.utils import read_bed_file_as_intervals
 
 
 def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
@@ -43,18 +44,7 @@ def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
         raise ValueError(f'Provided path for MT intervals: {intervals_path} - please provide a real path.')
 
     # read intervals BED file manually
-    intervals: list[hl.Interval] = []
-    with to_path(intervals_path).open() as bed_handle:
-        for line in bed_handle:
-            stripped = line.strip()
-            if not stripped:
-                continue
-
-            chrom, start, end = stripped.split()[:3]
-
-            start_locus = hl.Locus(chrom, int(start) + 1, reference_genome='GRCh38')
-            end_locus = hl.Locus(chrom, int(end), reference_genome='GRCh38')
-            intervals.append(hl.Interval(start_locus, end_locus, includes_start=True, includes_end=True))
+    intervals: list[hl.Interval] = read_bed_file_as_intervals(intervals_path)
 
     # read the VDS with pre-defined intervals
     vds = hl.vds.read_vds(vds_path, intervals=intervals)
