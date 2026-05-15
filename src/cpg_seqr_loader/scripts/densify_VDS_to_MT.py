@@ -127,9 +127,11 @@ def split_and_normalise(mt: hl.MatrixTable) -> hl.MatrixTable:
     mt = hl.split_multi_hts(mt)
 
     # adjust the AC field after splitting (not handled in split_multi, see method docstring)
-    mt = mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
+    return mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
 
-    # find the minimal representation for each variant
+
+def re_key_with_minrep(mt: hl.MatrixTable) -> hl.MatrixTable:
+    """Find the minimal representation for each variant."""
     mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
 
     # rotate the table key(s)
@@ -184,6 +186,10 @@ def main(
 
         # run splitting and normalisation
         mt = split_and_normalise(mt)
+
+        mt = mt.checkpoint(checkpoint_path.removesuffix('.mt') + '_before_rekey.mt', overwrite=True)
+
+        mt = re_key_with_minrep(mt)
 
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
