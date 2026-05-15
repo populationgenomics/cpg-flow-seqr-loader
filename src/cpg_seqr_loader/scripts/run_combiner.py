@@ -152,9 +152,7 @@ def main(
         force=force_new_combiner,
         intervals=vds_intervals,
         branch_factor=config.config_retrieve(['combiner', 'branch_factor']),
-        target_records=config.config_retrieve(
-            ['combiner', 'target_records']
-        ),  # keep this high to prevent hail overriding preset partitions
+        target_records=config.config_retrieve(['combiner', 'target_records']),
         gvcf_batch_size=config.config_retrieve(['combiner', 'gvcf_batch_size']),
     ).run()
 
