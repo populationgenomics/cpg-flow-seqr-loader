@@ -4,6 +4,7 @@ densifies the VDS into a MatrixTable
 Writes the MT to the output path
 
 Additional arguments:
+    --checkpoint: where to write a checkpoint after the densification, prior to attribute annotation & splitting
     --sites_only: optional, if used write a sites-only VCF directory to this location
                   it's far more efficient for Hail to write out a VCF per-partition, rather than a single VCF
                   this also prevents the need for writing out a single VCF, then fragmenting that to run VEP, VQSR
@@ -63,84 +64,6 @@ def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
     return mt.checkpoint(checkpoint_path, overwrite=True)
 
 
-def generate_mt_info(mt: hl.MatrixTable) -> hl.MatrixTable:
-    """
-    Applies all the methods to generate GATK-similar INFO attributes on a Combined VDS -> MT.
-
-    Args:
-        mt: MatrixTable
-
-    Returns:
-        annotated MatrixTable
-    """
-    # content shared with large_cohort.site_only_vcf.py
-    info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
-    info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
-
-    info_ht = adjust_vcf_incompatible_types(
-        info_ht,
-        # with default INFO_VCF_AS_PIPE_DELIMITED_FIELDS, AS_VarDP will be converted
-        # into a pipe-delimited value e.g.: VarDP=|132.1|140.2
-        # which breaks VQSR parser (it doesn't recognise the delimiter and treats
-        # it as an array with a single string value "|132.1|140.2", leading to
-        # an IndexOutOfBound exception when trying to access value for second allele)
-        pipe_delimited_annotations=[],
-    )
-
-    # annotate with densified representations
-    mt = mt.annotate_entries(
-        GT=hl.vds.lgt_to_gt(mt.LGT, mt.LA),
-        AD=hl.vds.local_to_global(
-            mt.LAD,
-            mt.LA,
-            n_alleles=hl.len(mt.alleles),
-            fill_value=0,
-            number='R',
-        ),
-        PL=hl.vds.local_to_global(
-            mt.LPL,
-            mt.LA,
-            n_alleles=hl.len(mt.alleles),
-            fill_value=999,
-            number='G',
-        ),
-    )
-
-    mt = mt.drop('gvcf_info')
-
-    # annotate this info back into the main MatrixTable
-    return mt.annotate_rows(info=info_ht[mt.row_key].info)
-
-
-def split_and_normalise(mt: hl.MatrixTable) -> hl.MatrixTable:
-    """
-    Runs the multiallelic splitting, and variant representation normalisation process.
-
-    Args:
-        mt: MatrixTable
-
-    Returns:
-        the same MT data, with normalised and minimally-represented variants
-    """
-
-    # split out multiallelic rows on the dense representation
-    mt = hl.split_multi_hts(mt)
-
-    # adjust the AC field after splitting (not handled in split_multi, see method docstring)
-    return mt.annotate_rows(info=mt.info.annotate(AC=mt.info.AC[mt.a_index - 1]))
-
-
-def re_key_with_minrep(mt: hl.MatrixTable) -> hl.MatrixTable:
-    """Find the minimal representation for each variant."""
-    mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
-
-    # rotate the table key(s)
-    return mt.key_rows_by(
-        locus=mt.minrep.locus,
-        alleles=mt.minrep.alleles,
-    )
-
-
 def main(
     vds_in: str,
     dense_mt_out: str,
@@ -164,32 +87,48 @@ def main(
     """
 
     hail_batch.init_batch(
-        worker_memory=config.config_retrieve(['combiner', 'worker_memory'], 'highmem'),
-        worker_cores=config.config_retrieve(['combiner', 'worker_cores'], 1),
-        driver_memory=config.config_retrieve(['combiner', 'driver_memory'], 'highmem'),
-        driver_cores=config.config_retrieve(['combiner', 'driver_cores'], 2),
+        worker_memory=config.config_retrieve(['combiner', 'worker_memory']),
+        worker_cores=config.config_retrieve(['combiner', 'worker_cores']),
+        driver_memory=config.config_retrieve(['combiner', 'driver_memory']),
+        driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
     )
 
-    # check here to see if we can reuse the dense MT
+    # check here to see if we can reuse the dense MT, and we only need to generate VCFs
     if not utils.can_reuse(dense_mt_out):
-        # and check here to see if we can re-use the checkpoint
+        # generate a deterministic path to a post-densification checkpoint
+        dense_checkpoint_path = checkpoint_path.removesuffix('.mt') + '_initial_densification.mt'
+
+        # and check if it already exists
         if utils.can_reuse(checkpoint_path):
-            loguru.logger.info(f'Resuming from a densified checkpoint: {checkpoint_path}')
-            mt = hl.read_matrix_table(checkpoint_path)
+            loguru.logger.info(f'Resuming from a densified checkpoint: {dense_checkpoint_path}')
+            mt = hl.read_matrix_table(dense_checkpoint_path)
 
         else:
-            loguru.logger.info(f'Running a VDS -> with densification, checkpointing to {checkpoint_path}')
-            mt = densify(vds_in, checkpoint_path)
+            loguru.logger.info(f'Running a VDS -> with densification, checkpointing to {dense_checkpoint_path}')
+            mt = densify(vds_in, dense_checkpoint_path)
 
-        # run the INFO field generation/annotation process
-        mt = generate_mt_info(mt)
+        # content shared with large_cohort.site_only_vcf.py
+        info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
+        info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
 
-        # run splitting and normalisation
-        mt = split_and_normalise(mt)
+        info_ht = adjust_vcf_incompatible_types(
+            info_ht,
+            # with default INFO_VCF_AS_PIPE_DELIMITED_FIELDS, AS_VarDP will be converted
+            # into a pipe-delimited value e.g.: VarDP=|132.1|140.2
+            # which breaks VQSR parser (it doesn't recognise the delimiter and treats
+            # it as an array with a single string value "|132.1|140.2", leading to
+            # an IndexOutOfBound exception when trying to access value for second allele)
+            pipe_delimited_annotations=[],
+        )
 
-        mt = mt.checkpoint(checkpoint_path.removesuffix('.mt') + '_before_rekey.mt', overwrite=True)
+        # annotate this info back into the main MatrixTable
+        mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
 
-        mt = re_key_with_minrep(mt)
+        # unpack mt.info.info back into mt.info. Must be better syntax for this?
+        mt = mt.drop('gvcf_info')
+
+        loguru.logger.info('Splitting multiallelics, in a sparse way')
+        mt = hl.experimental.sparse_split_multi(mt)
 
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
