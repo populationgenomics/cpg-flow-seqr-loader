@@ -99,7 +99,7 @@ def main(
         dense_checkpoint_path = checkpoint_path.removesuffix('.mt') + '_initial_densification.mt'
 
         # and check if it already exists
-        if utils.can_reuse(checkpoint_path):
+        if utils.can_reuse(dense_checkpoint_path):
             loguru.logger.info(f'Resuming from a densified checkpoint: {dense_checkpoint_path}')
             mt = hl.read_matrix_table(dense_checkpoint_path)
 
