@@ -93,7 +93,7 @@ def main(
         driver_cores=config.config_retrieve(['combiner', 'driver_cores']),
     )
 
-    # check here to see if we can reuse the dense MT, and we only need to generate VCFs
+    # check here to see if we can reuse the dense MT, and we only need to export as VCF representations
     if not utils.can_reuse(dense_mt_out):
         # generate a deterministic path to a post-densification checkpoint
         dense_checkpoint_path = checkpoint_path.removesuffix('.mt') + '_initial_densification.mt'
