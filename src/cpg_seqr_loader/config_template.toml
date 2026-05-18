@@ -45,10 +45,12 @@ sg_remove_threshold = 20
 sg_remove_confirm = false
 
 [combiner.densify_intervals]
+# these enforce partitioning on the VDS when it's read, so the intervals remain for the resulting MT
 exome = 'gs://cpg-seqr-main/exome_based_intervals/100_var_balanced_intervals.bed'
-genome = 'gs://cpg-seqr-main/genome_based_intervals/1000_var_balanced_intervals.bed'
+genome = 'gs://cpg-seqr-main/genome_based_intervals/2000_var_balanced_intervals.bed'
 
 [combiner.vds_intervals]
+# these intervals are used to partition incoming gVCFs, but don't shape the final VDS
 exome = 'gs://cpg-seqr-main/exome_based_intervals/500_var_balanced_intervals.bed'
 genome = 'gs://cpg-seqr-main/genome_based_intervals/5000_var_balanced_intervals.bed'
 
