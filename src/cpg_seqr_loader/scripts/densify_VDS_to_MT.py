@@ -124,7 +124,7 @@ def main(
         # annotate this info back into the main MatrixTable
         mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
 
-        # unpack mt.info.info back into mt.info. Must be better syntax for this?
+        # drop the original gVCF-specific row field now that the computed INFO struct is attached
         mt = mt.drop('gvcf_info')
 
         loguru.logger.info('Splitting multiallelics, in a sparse way')
