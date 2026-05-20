@@ -242,6 +242,7 @@ def annotate_cohort(
         refavis_ht = hl.read_table(avi_table)
         loguru.logger.info('Annotating with refavis data')
         mt = mt.annotate_rows(avis=refavis_ht[mt.row_key].normalised_avis)
+        mt = mt.annotate_rows(avis_phred=refavis_ht[mt.row_key].phred)
         mt.describe()
 
     # annotate all the gnomAD v4 fields in a separate function
