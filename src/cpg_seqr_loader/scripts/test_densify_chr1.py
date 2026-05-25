@@ -204,21 +204,16 @@ def report_row_counts(mt: hl.MatrixTable, label: str):
     return n_rows
 
 
-def adjust_info_after_split(mt: hl.MatrixTable) -> hl.MatrixTable:
-    """Post-split: convert allele-specific info arrays to scalars using a_index."""
-
-    SCALAR_INFO_FIELDS = {
-        'QUALapprox', 'VarDP', 'ReadPosRankSum', 'MQRankSum',
-        'MQ', 'QD', 'FS', 'SOR', 'SB', 'DP',
-    }
+def adjust_info_after_split(mt: hl.MatrixTable, as_fields: set[str]) -> hl.MatrixTable:
+    """Post-split: convert allele-specific INFO arrays to per-allele scalars using a_index."""
 
     info_updates = {}
-    for field, dtype in mt.info.dtype.items():
-        if field in SCALAR_INFO_FIELDS:
+    for field in as_fields:
+        if field not in mt.info:
             continue
-        elif field == 'AS_SB_TABLE':
+        if field == 'AS_SB_TABLE':
             info_updates[field] = [mt.info.AS_SB_TABLE[0], mt.info.AS_SB_TABLE[mt.a_index]]
-        elif isinstance(dtype, hl.tarray):
+        else:
             info_updates[field] = mt.info[field][mt.a_index - 1]
 
     mt = mt.annotate_rows(info=mt.info.annotate(**info_updates))
@@ -229,20 +224,20 @@ def adjust_info_after_split(mt: hl.MatrixTable) -> hl.MatrixTable:
     return mt
 
 
-def compute_info(mt: hl.MatrixTable) -> tuple[hl.MatrixTable, hl.Table]:
-    """Compute info fields and annotate onto MT. Returns (annotated MT, info_ht)."""
-    info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
+def compute_info(mt: hl.MatrixTable) -> tuple[hl.MatrixTable, hl.Table, set[str]]:
+    """Compute info fields and annotate onto MT. Returns (annotated MT, info_ht, as_info_fields)."""
+    info_ht, as_info_fields = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
     info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
     mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
     mt = mt.drop('gvcf_info')
-    return mt, info_ht
+    return mt, info_ht, as_info_fields
 
 
 def run_current_approach(mt: hl.MatrixTable):
     """Mirrors what's on main right now: adjust_vcf_types BEFORE split, no info adjustment after."""
     loguru.logger.info('\n====== CURRENT APPROACH ======')
 
-    mt, info_ht = compute_info(mt)
+    mt, info_ht, _ = compute_info(mt)
 
     info_ht = adjust_vcf_incompatible_types(info_ht, pipe_delimited_annotations=[])
     mt = mt.annotate_rows(info=info_ht[mt.row_key].info)
@@ -268,7 +263,7 @@ def run_proposed_approach(mt: hl.MatrixTable):
     """Proposed fix: split FIRST, adjust info AFTER, then VCF types last."""
     loguru.logger.info('\n====== PROPOSED APPROACH ======')
 
-    mt, _ = compute_info(mt)
+    mt, _, as_info_fields = compute_info(mt)
 
     pre_split_rows = mt.count_rows()
     expected_rows = mt.aggregate_rows(hl.agg.sum(hl.len(mt.alleles) - 1))
@@ -286,7 +281,7 @@ def run_proposed_approach(mt: hl.MatrixTable):
     else:
         loguru.logger.info('0 variants dropped during min_rep locus shift')
 
-    mt = adjust_info_after_split(mt)
+    mt = adjust_info_after_split(mt, as_info_fields)
 
     report_schema(mt, 'PROPOSED (post-split, post-info-adjust)')
 
