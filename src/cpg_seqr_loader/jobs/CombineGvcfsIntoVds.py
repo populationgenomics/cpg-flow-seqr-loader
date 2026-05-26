@@ -18,7 +18,7 @@ def check_for_sample_removal(
     temp_dir: Path,
 ) -> str:
     """
-    Contain all the logic for working out when samples need to be manually removed.
+    Contains all the logic for working out when samples need to be manually removed.
     - detect SG IDs to remove
     - write those to a temp file
     - pass into the combiner job
@@ -94,7 +94,7 @@ def create_combiner_jobs(
         sg_ids_in_vds = utils.manually_find_ids_from_vds(vds_path)
 
     # list of CPG IDs to remove, and re-add
-    refresh_sg_ids = set(config.config_retrieve(['workflow', 'refresh_sgids'], []))
+    refresh_sg_ids = set(config.config_retrieve(['combiner', 'refresh_sgids'], []))
     if refresh_sg_ids:
         loguru.logger.info(f'Samples to be refreshed from config: {refresh_sg_ids}')
 
