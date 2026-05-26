@@ -44,6 +44,10 @@ target_records = 600000
 sg_remove_threshold = 20
 sg_remove_confirm = false
 
+# optional, list of SG IDs. These will be removed from the current VDS if present, then readded
+# rarely used mechanic, allows component gVCFs to be removed and replaced in case of data issues
+refresh_sgids = []
+
 [combiner.densify_intervals]
 # these enforce partitioning on the VDS when it's read, so the intervals remain for the resulting MT
 exome = 'gs://cpg-seqr-main/exome_based_intervals/100_var_balanced_intervals.bed'
@@ -81,11 +85,11 @@ indel_filter_level = 99.0
 vqsr_training_fragments_per_job = 100
 vqsr_apply_fragments_per_job = 60
 indel_recal_disc_size = 100
-snps_recal_disc_size = 20
+snps_recal_disc_size = 50
 snps_gather_disc_size = 10
 
 [images]
-bcftools = "australia-southeast1-docker.pkg.dev/cpg-common/images/bcftools:1.22-1"
+bcftools = "australia-southeast1-docker.pkg.dev/cpg-common/images/bcftools:1.23-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-1"
 vep = "australia-southeast1-docker.pkg.dev/cpg-common/images/vep:110.1-1"
 

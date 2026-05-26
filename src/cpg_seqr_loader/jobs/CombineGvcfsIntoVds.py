@@ -11,6 +11,48 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
+def check_for_sample_removal(
+    sg_ids_in_vds: set[str],
+    sg_ids_in_mc: list[str],
+    refresh_sgs: set[str],
+    temp_dir: Path,
+) -> str:
+    """
+    Contain all the logic for working out when samples need to be manually removed.
+    - detect SG IDs to remove
+    - write those to a temp file
+    - pass into the combiner job
+    - return as an argument for the combiner script, or an empty string
+    """
+
+    if not sg_ids_in_vds:
+        return ''
+
+    loguru.logger.info(f'Found {len(sg_ids_in_vds)} SG IDs in VDS.')
+    loguru.logger.info(f'Total {len(sg_ids_in_mc)} SGs in this MultiCohort.')
+
+    # gather any SGs to remove based on MultiCohort alone
+    sgs_to_remove = sg_ids_in_vds - set(sg_ids_in_mc)
+
+    # add any samples which need to be refreshed - union of available SGs and current SGs
+    # union: can't request removal of an SG not currently in the VDS
+    sgs_to_remove |= sg_ids_in_vds & refresh_sgs
+
+    if not sgs_to_remove:
+        return ''
+
+    loguru.logger.info(f'Planning to remove {len(sgs_to_remove)} SGs from current VDS.')
+    loguru.logger.info(f'SGs to remove: {sgs_to_remove}')
+
+    # make a temp file containing these IDs, and write them to it
+    sg_remove_file = temp_dir / 'sgs_to_remove.txt'
+    with sg_remove_file.open('w') as write_handle:
+        for sgid in sorted(sgs_to_remove):
+            write_handle.write(f'{sgid!s}\n')
+    localised_sg_remove_file = hail_batch.get_batch().read_input(sg_remove_file)
+    return f'--sg_remove_file {localised_sg_remove_file!s}'
+
+
 def create_combiner_jobs(
     multicohort: targets.MultiCohort,
     output_vds: Path,
@@ -20,7 +62,6 @@ def create_combiner_jobs(
 ) -> 'BashJob | None':
     vds_path: str | None = None
     sg_ids_in_vds: set[str] = set()
-    sgs_to_remove: list[str] = []
 
     temp_dir = to_path(temp_dir_string)
 
@@ -53,40 +94,35 @@ def create_combiner_jobs(
         sg_ids_in_vds = utils.manually_find_ids_from_vds(vds_path)
 
     # list of CPG IDs to remove, and re-add
-    refresh_gvcfs = set(config.config_retrieve(['workflow', 'refresh_sgids'], []))
+    refresh_sg_ids = set(config.config_retrieve(['workflow', 'refresh_sgids'], []))
+    if refresh_sg_ids:
+        loguru.logger.info(f'Samples to be refreshed from config: {refresh_sg_ids}')
 
+    # all SGs in this multicohort
+    sgs_in_mc: list[str] = multicohort.get_sequencing_group_ids()
+
+    # check for refresh samples which don't exist in this multicohort - can't tolerate that situation
+    if refresh_missing := refresh_sg_ids - set(sgs_in_mc):
+        raise ValueError(f'Refresh requested for {refresh_missing} SG IDs - absent from this MultiCohort.')
+
+    # get all gVCF paths for samples which aren't already in the VDS, or samples we intend to refresh (remove, re-add)
     new_sg_gvcfs = [
         str(sg.gvcf)
         for sg in multicohort.get_sequencing_groups()
-        if (sg.gvcf is not None) and ((sg.id not in sg_ids_in_vds) or (sg.id in refresh_gvcfs))
+        if (sg.gvcf is not None) and ((sg.id not in sg_ids_in_vds) or (sg.id in refresh_sg_ids))
     ]
 
-    # final check - if we have a VDS, and we have a current MultiCohort
+    # final check - if we have a VDS, and we have a current MultiCohort, and optionally a list of samples to refresh
     # detect any samples which should be _removed_ from the current VDS prior to further combining taking place
-    sg_remove_arg = ''
-    if sg_ids_in_vds:
-        sgs_in_mc: list[str] = multicohort.get_sequencing_group_ids()
-        loguru.logger.info(f'Found {len(sg_ids_in_vds)} SG IDs in VDS {vds_path}')
-        loguru.logger.info(f'Total {len(sgs_in_mc)} SGs in this MultiCohort')
-        if refresh_gvcfs:
-            loguru.logger.info(f'Samples to be refreshed from config: {refresh_gvcfs}')
+    # return this as an argument for the combiner script
+    sg_remove_arg = check_for_sample_removal(
+        sg_ids_in_vds=sg_ids_in_vds,
+        sg_ids_in_mc=sgs_in_mc,
+        refresh_sgs=refresh_sg_ids,
+        temp_dir=temp_dir,
+    )
 
-        # gather any SGs to remove, adding any samples which need to be refreshed
-        sgs_to_remove = sorted((set(sg_ids_in_vds) - set(sgs_in_mc)) | refresh_gvcfs)
-
-        if sgs_to_remove:
-            loguru.logger.info(f'Removing {len(sgs_to_remove)} SGs from VDS {vds_path}')
-            loguru.logger.info(f'SGs to remove: {sgs_to_remove}')
-
-            # make a temp file containing these IDs, and write them to it
-            sg_remove_file = temp_dir / 'sgs_to_remove.txt'
-            with sg_remove_file.open('w') as write_handle:
-                for sgid in sgs_to_remove:
-                    write_handle.write(f'{sgid!s}\n')
-            localised_sg_remove_file = hail_batch.get_batch().read_input(sg_remove_file)
-            sg_remove_arg = f'--sg_remove_file {localised_sg_remove_file!s}'
-
-    if not (new_sg_gvcfs or sgs_to_remove):
+    if not (new_sg_gvcfs or sg_remove_arg):
         loguru.logger.info('No GVCFs to add to, or remove from, existing VDS')
         loguru.logger.info(f'Checking if VDS exists: {output_vds}: {output_vds.exists()}')
         return None
