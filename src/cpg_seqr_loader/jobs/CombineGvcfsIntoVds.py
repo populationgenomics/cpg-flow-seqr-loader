@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
-def create_combiner_jobs(
+def create_combiner_jobs(  # noqa: PLR0915
     multicohort: targets.MultiCohort,
     output_vds: Path,
     combiner_plan: Path,
@@ -62,11 +62,16 @@ def create_combiner_jobs(
     # detect any samples which should be _removed_ from the current VDS prior to further combining taking place
     sg_remove_arg = ''
     if sg_ids_in_vds:
-        sgs_in_mc: list[str] = multicohort.get_sequencing_group_ids()
-        loguru.logger.info(f'Found {len(sg_ids_in_vds)} SG IDs in VDS {vds_path}')
-        loguru.logger.info(f'Total {len(sgs_in_mc)} SGs in this MultiCohort')
+        # Only use this force override if you really need to remove SGs in a way that bypasses all of the checks
+        if config.config_retrieve(['combiner', 'force_remove_sgs'], False):
+            loguru.logger.warning('Force removing SGs from VDS, as per config')
+            sgs_to_remove = sorted(sg_ids_in_vds)
+        else:
+            sgs_in_mc: list[str] = multicohort.get_sequencing_group_ids()
+            loguru.logger.info(f'Found {len(sg_ids_in_vds)} SG IDs in VDS {vds_path}')
+            loguru.logger.info(f'Total {len(sgs_in_mc)} SGs in this MultiCohort')
 
-        sgs_to_remove = sorted(set(sg_ids_in_vds) - set(sgs_in_mc))
+            sgs_to_remove = sorted(set(sg_ids_in_vds) - set(sgs_in_mc))
 
         if sgs_to_remove:
             loguru.logger.info(f'Removing {len(sgs_to_remove)} SGs from VDS {vds_path}')
@@ -88,12 +93,22 @@ def create_combiner_jobs(
         return None
 
     gvcf_add_arg = ''
-    if new_sg_gvcfs:
+    if new_sg_gvcfs and not config.config_retrieve(['combiner', 'force_add_gvcfs_file_path'], False):
         # write the gVCF paths into a temporary file
         gvcf_path_file = temp_dir / 'gvcfs_to_combine.txt'
         with gvcf_path_file.open('w') as write_handle:
             for gvcf_path in new_sg_gvcfs:
                 write_handle.write(f'{gvcf_path!s}\n')
+        localised_version = hail_batch.get_batch().read_input(str(gvcf_path_file))
+        gvcf_add_arg = f'--gvcf_add_file {localised_version}'
+
+    # Only use this force override if you really need to add gvcfs in a way that bypasses all of the checks above
+    if forced_path := config.config_retrieve(['combiner', 'force_add_gvcfs_file_path'], False):
+        loguru.logger.warning(f'Force adding gVCFs to Combiner, as per config, from {forced_path}')
+        loguru.logger.warning(
+            'This will override all other checks for which gVCFs to add, and will add all gVCFs in the specified file'
+        )
+        gvcf_path_file = to_path(forced_path)
         localised_version = hail_batch.get_batch().read_input(str(gvcf_path_file))
         gvcf_add_arg = f'--gvcf_add_file {localised_version}'
 
