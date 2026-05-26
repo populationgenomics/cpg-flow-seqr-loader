@@ -52,10 +52,13 @@ def create_combiner_jobs(
     if vds_path and config.config_retrieve(['workflow', 'manually_check_vds_sg_ids']):
         sg_ids_in_vds = utils.manually_find_ids_from_vds(vds_path)
 
+    # list of CPG IDs to remove, and re-add
+    refresh_gvcfs = config.config_retrieve(['workflow', 'refresh_gvcfs'], [])
+
     new_sg_gvcfs = [
         str(sg.gvcf)
         for sg in multicohort.get_sequencing_groups()
-        if (sg.gvcf is not None) and (sg.id not in sg_ids_in_vds)
+        if (sg.gvcf is not None) and ((sg.id not in sg_ids_in_vds) or (sg.id in refresh_gvcfs))
     ]
 
     # final check - if we have a VDS, and we have a current MultiCohort
@@ -65,16 +68,17 @@ def create_combiner_jobs(
         sgs_in_mc: list[str] = multicohort.get_sequencing_group_ids()
         loguru.logger.info(f'Found {len(sg_ids_in_vds)} SG IDs in VDS {vds_path}')
         loguru.logger.info(f'Total {len(sgs_in_mc)} SGs in this MultiCohort')
+        if refresh_gvcfs:
+            loguru.logger.info(f'Samples to be refreshed from config: {refresh_gvcfs}')
 
-        sgs_to_remove = sorted(set(sg_ids_in_vds) - set(sgs_in_mc))
+        # gather any SGs to remove, adding any samples which need to be refreshed
+        sgs_to_remove = sorted((set(sg_ids_in_vds) - set(sgs_in_mc)) | refresh_gvcfs)
 
         if sgs_to_remove:
             loguru.logger.info(f'Removing {len(sgs_to_remove)} SGs from VDS {vds_path}')
             loguru.logger.info(f'SGs to remove: {sgs_to_remove}')
 
             # make a temp file containing these IDs, and write them to it
-
-            # write the gVCF paths into a temporary file
             sg_remove_file = temp_dir / 'sgs_to_remove.txt'
             with sg_remove_file.open('w') as write_handle:
                 for sgid in sgs_to_remove:
