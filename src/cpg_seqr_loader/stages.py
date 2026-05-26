@@ -153,7 +153,7 @@ class ConcatenateVcfsWithGcloud(stage.MultiCohortStage):
         if not dense_inputs['separate_header_manifest'].exists():
             raise ValueError(
                 f'Manifest file {dense_inputs["separate_header_manifest"]!s} does not exist, '
-                 f're-run the combiner workflow with workflows.last_stages=["CreateDenseMtFromVdsWithHail"]',
+                f're-run the combiner workflow with workflows.last_stages=["CreateDenseMtFromVdsWithHail"]',
             )
 
         output = self.expected_outputs(multicohort)
