@@ -53,7 +53,7 @@ def create_combiner_jobs(
         sg_ids_in_vds = utils.manually_find_ids_from_vds(vds_path)
 
     # list of CPG IDs to remove, and re-add
-    refresh_gvcfs = config.config_retrieve(['workflow', 'refresh_gvcfs'], [])
+    refresh_gvcfs = config.config_retrieve(['workflow', 'refresh_sgids'], [])
 
     new_sg_gvcfs = [
         str(sg.gvcf)
