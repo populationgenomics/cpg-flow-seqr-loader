@@ -42,7 +42,7 @@ def check_for_sample_removal(
         return ''
 
     loguru.logger.info(f'Planning to remove {len(sgs_to_remove)} SGs from current VDS.')
-    loguru.logger.info(f'SGs to remove: {sgs_to_remove}')
+    loguru.logger.info(f'SGs to remove: {sorted(sgs_to_remove)}')
 
     # make a temp file containing these IDs, and write them to it
     sg_remove_file = temp_dir / 'sgs_to_remove.txt'
