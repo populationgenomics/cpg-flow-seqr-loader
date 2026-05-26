@@ -44,6 +44,10 @@ target_records = 600000
 sg_remove_threshold = 20
 sg_remove_confirm = false
 
+# These overrides should only be used in exceptional circumstances
+force_remove_sgs = false
+force_add_gvcfs_file_path = false
+
 [combiner.densify_intervals]
 # these enforce partitioning on the VDS when it's read, so the intervals remain for the resulting MT
 exome = 'gs://cpg-seqr-main/exome_based_intervals/100_var_balanced_intervals.bed'
