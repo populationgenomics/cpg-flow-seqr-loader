@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 def create_annotate_dataset_job(
     dataset: targets.Dataset,
-    input_mt: str,
+    input_mt: Path,
     output_mt: Path,
     job_attrs: dict[str, str],
 ) -> 'BashJob':
@@ -25,7 +25,7 @@ def create_annotate_dataset_job(
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.annotate_dataset \\
-            --input {input_mt} \\
+            --input {input_mt!s} \\
             --output {output_mt!s}
         """
     )
