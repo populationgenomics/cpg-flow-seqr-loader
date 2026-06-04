@@ -484,8 +484,6 @@ class SubsetMtToDatasetWithHail(stage.DatasetStage):
         AnnotateCohort,
         SubsetMtToDatasetWithHail,
     ],
-    # analyses recorded to pass through to Metamist/other workflows
-    analysis_type='matrixtable',
 )
 class AnnotateDataset(stage.DatasetStage):
     def expected_outputs(self, dataset: targets.Dataset) -> Path:
@@ -498,7 +496,7 @@ class AnnotateDataset(stage.DatasetStage):
             mt_name = f'{dataset.name}.mt'
 
         return (
-            dataset.prefix()
+            dataset.tmp_prefix()
             / workflow.get_workflow().name
             / workflow.get_workflow().output_version
             / self.name
