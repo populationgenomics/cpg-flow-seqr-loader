@@ -41,6 +41,10 @@ class CombineGvcfsIntoVds(stage.MultiCohortStage):
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
 
+        # refuse to run the combiner where input SGs lack a gVCF and would be silently removed
+        if no_vcf_sgs := [sg.id for sg in multicohort.get_sequencing_groups() if sg.gvcf is None]:
+            raise ValueError(f'SG IDs lacking gVCFs present in multicohort: {",".join(no_vcf_sgs)})')
+
         job = create_combiner_jobs(
             multicohort=multicohort,
             output_vds=outputs['vds'],
