@@ -109,7 +109,7 @@ def create_combiner_jobs(
     new_sg_gvcfs = [
         str(sg.gvcf)
         for sg in multicohort.get_sequencing_groups()
-        if (sg.gvcf is not None) and ((sg.id not in sg_ids_in_vds) or (sg.id in refresh_sg_ids))
+        if (sg.id not in sg_ids_in_vds) or (sg.id in refresh_sg_ids)
     ]
 
     # final check - if we have a VDS, and we have a current MultiCohort, and optionally a list of samples to refresh
