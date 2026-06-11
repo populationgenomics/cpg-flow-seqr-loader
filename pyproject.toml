@@ -23,6 +23,7 @@ classifiers=[
 dependencies=[
     'cpg-flow~=1.3',
     'elasticsearch==8.*',
+    'pysam',
 ]
 
 [project.urls]
