@@ -159,7 +159,14 @@ def clone_record(
     sample_name: str,
     src: pysam.VariantRecord,
 ) -> pysam.VariantRecord:
-    """Copy a source record verbatim into the single-sample output header (used for chrY / chrM)."""
+    """Copy a source record into the single-sample output header (used for chrY / chrM).
+
+    Site-level INFO annotations are deliberately dropped: the Hail gVCF combiner does not need
+    them (site annotations are recomputed downstream via VQSR/Hail), and copying them verbatim is
+    fragile across headers (e.g. a multi-valued MLEAC/MLEAF from a multiallelic site fails against
+    the mother-derived output header). END is preserved via stop=, matching the rest of the dummy
+    gVCF, which also carries no INFO. Only FORMAT fields the output header declares are copied.
+    """
     out = header.new_record(
         contig=src.contig,
         start=src.start,
@@ -168,12 +175,10 @@ def clone_record(
         id=src.id,
         qual=src.qual,
     )
-    for key, value in src.info.items():
-        out.info[key] = value
     out_sample = out.samples[sample_name]
-    src_sample = src.samples[0]
-    for key, value in src_sample.items():
-        out_sample[key] = value
+    for key, value in src.samples[0].items():
+        if key in header.formats:
+            out_sample[key] = value
     return out
 
 
