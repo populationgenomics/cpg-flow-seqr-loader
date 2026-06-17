@@ -21,6 +21,7 @@ This phase is gVCF synthesis only. Metamist registration (participant/sample/SG 
 pedigree import, gvcf analysis linking) and the VDS/seqr workflow wiring are handled separately.
 """
 
+import gzip
 import shutil
 import tempfile
 from argparse import ArgumentParser
@@ -392,6 +393,9 @@ def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, 
         tmp = Path(tmp_dir)
         local_mother = _localise(mother_gvcf, tmp)
         local_father = _localise(father_gvcf, tmp)
+        # pysam forces INFO/END onto every record it writes (END is declared in the header), so we
+        # write to a raw file first then strip END off variant lines in a text pass (see below).
+        local_raw = str(tmp / 'raw.g.vcf.gz')
         local_out = str(tmp / 'dummy.g.vcf.gz')
 
         with pysam.VariantFile(local_mother) as mother_vcf, pysam.VariantFile(local_father) as father_vcf:
@@ -401,7 +405,7 @@ def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, 
             mother_iter = PeekIter(mother_vcf)
             father_iter = PeekIter(father_vcf)
 
-            with pysam.VariantFile(local_out, 'wz', header=header) as out_vcf:
+            with pysam.VariantFile(local_raw, 'wz', header=header) as out_vcf:
                 while mother_iter.peek() is not None or father_iter.peek() is not None:
                     contig = _next_contig(mother_iter, father_iter, contig_rank)
                     logger.info(f'Processing {contig}')
@@ -425,10 +429,37 @@ def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, 
                             is_chrx=contig in CHRX_NAMES,
                         )
 
+        # strip the spurious INFO/END off variant records (ref blocks keep it), then bgzip + index
+        _strip_end_from_variants(local_raw, local_out, tmp)
         pysam.tabix_index(local_out, preset='vcf', force=True)
         _delocalise(local_out, out_path)
         _delocalise(local_out + '.tbi', out_path + '.tbi')
         logger.info(f'Wrote dummy proband gVCF for {sample_name} to {out_path}')
+
+
+def _strip_end_from_variants(raw_path: str, out_path: str, tmp: Path) -> None:
+    """Remove INFO/END from variant records, keeping it only on <NON_REF>-only reference blocks.
+
+    pysam writes INFO/END on every record (it is declared in the header), but the Hail combiner
+    treats any record with a defined END as a reference block and errors if such a record has a
+    non-hom-ref genotype. A record is a reference block iff its ALT is exactly <NON_REF>; every
+    other record is a variant and must have END absent so the combiner reads it correctly.
+    """
+    plain = str(tmp / 'stripped.vcf')
+    with gzip.open(raw_path, 'rt') as fin, Path(plain).open('w') as fout:
+        for line in fin:
+            if line.startswith('#'):
+                fout.write(line)
+                continue
+            columns = line.rstrip('\n').split('\t')
+            alt, info = columns[4], columns[7]
+            if alt == '<NON_REF>' or 'END=' not in info:
+                fout.write(line)
+                continue
+            kept = [field for field in info.split(';') if not field.startswith('END=')]
+            columns[7] = ';'.join(kept) if kept else '.'
+            fout.write('\t'.join(columns) + '\n')
+    pysam.tabix_compress(plain, out_path, force=True)
 
 
 def _next_contig(mother_iter: PeekIter, father_iter: PeekIter, contig_rank: dict[str, int]) -> str:
