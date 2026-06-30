@@ -88,6 +88,25 @@ def carried_alt(rec: pysam.VariantRecord | None) -> str | None:
     return None
 
 
+def _reanchor_alt(alt: str | None, parent_ref: str, common_ref: str) -> str | None:
+    """Re-anchor an ALT allele defined against parent_ref onto a (longer) common_ref.
+
+    When two parents have variants at the same locus with different REF lengths, all alleles must
+    be expressed against one common REF (the longest). An ALT defined against a shorter REF needs
+    the extra reference bases appended to it. parent_ref is always a prefix of common_ref (both are
+    the reference sequence starting at the same position), so appending common_ref's suffix is the
+    correct VCF allele-merge operation (the same thing bcftools norm / GATK do).
+
+    Example: father C->CAAAAT against common REF CT becomes CAAAAT + 'T' = CAAAATT (i.e. CT->CAAAATT),
+    which is the father's insertion correctly expressed without consuming the reference T.
+    """
+    if alt is None:
+        return None
+    if len(parent_ref) < len(common_ref):
+        return alt + common_ref[len(parent_ref) :]
+    return alt
+
+
 def _int(value) -> int:
     """Coerce an optional FORMAT scalar (which may be None or a 1-tuple) to a non-negative int."""
     if value is None:
@@ -345,19 +364,31 @@ def merge_contig(
             mother_starts_here = mother_var and m_start == seg_start
             father_starts_here = father_var and f_start == seg_start
             if mother_starts_here or father_starts_here:
-                # take REF from a contributing variant (the longer one if both start here)
-                ref = mother.ref if mother_starts_here else father.ref
-                if mother_starts_here and father_starts_here and len(father.ref) > len(ref):
-                    ref = father.ref
+                # A parent contributes its ALT only if its variant record STARTS here - a parent
+                # whose indel merely spans this position was already emitted at its own start, so
+                # including it here would create a spurious (often REF==ALT) allele.
+                # The common REF is the longest contributing REF; each ALT is re-anchored to it
+                # (see _reanchor_alt) so a multiallelic merge of differently-anchored indels stays
+                # normalised and left-aligned for sparse_split_multi.
+                contributing_refs = [
+                    rec.ref for rec, starts in ((mother, mother_starts_here), (father, father_starts_here)) if starts
+                ]
+                common_ref = max(contributing_refs, key=len)
+                maternal_alt = (
+                    _reanchor_alt(carried_alt(mother), mother.ref, common_ref) if mother_starts_here else None
+                )
+                paternal_alt = (
+                    _reanchor_alt(carried_alt(father), father.ref, common_ref) if father_starts_here else None
+                )
                 emit_variant(
                     out_vcf,
                     header,
                     sample_name,
                     contig,
                     seg_start,
-                    ref,
-                    carried_alt(mother),
-                    carried_alt(father),
+                    common_ref,
+                    maternal_alt,
+                    paternal_alt,
                     min(gq_of(mother), gq_of(father)),
                     min(dp_of(mother), dp_of(father)),
                     haploid=False,
