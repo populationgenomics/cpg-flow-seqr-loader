@@ -67,25 +67,35 @@ def is_par(pos: int) -> bool:
     return any(start <= pos <= end for start, end in PAR_X_REGIONS)
 
 
-def carried_alt(rec: pysam.VariantRecord | None) -> str | None:
-    """Return the (first) real ALT allele the single sample carries, or None if hom-ref/missing.
+def carried_alts(rec: pysam.VariantRecord | None) -> list[str]:
+    """Return every real ALT allele the single sample carries, in GT order.
 
-    A reference block (GT 0/0) returns None, which is exactly the 'contributes a ref allele'
-    behaviour the worst-case rule needs.
+    A reference block (GT 0/0) returns [], which is exactly the 'contributes a ref allele'
+    behaviour the worst-case rule needs. A 1/2 heterozygous call returns both non-ref alleles;
+    a 1/1 returns the ALT twice (kept as-is; callers can dedupe if they need to).
     """
     if rec is None:
-        return None
+        return []
     gt = rec.samples[0].get('GT')
     if gt is None:
-        return None
+        return []
+    alts: list[str] = []
     for allele_index in gt:
         if allele_index in (0, None):
             continue
         allele = rec.alleles[allele_index]
         if allele in NON_REF_ALLELES:
             continue
-        return allele
-    return None
+        alts.append(allele)
+    return alts
+
+
+def carried_alt(rec: pysam.VariantRecord | None) -> str | None:
+    """Convenience wrapper: the first carried real ALT allele, or None. Used on non-PAR chrX where
+    inheritance is single-parent (maternal), so picking one alt is unambiguous.
+    """
+    alts = carried_alts(rec)
+    return alts[0] if alts else None
 
 
 def _reanchor_alt(alt: str | None, parent_ref: str, common_ref: str) -> str | None:
@@ -374,12 +384,42 @@ def merge_contig(
                     rec.ref for rec, starts in ((mother, mother_starts_here), (father, father_starts_here)) if starts
                 ]
                 common_ref = max(contributing_refs, key=len)
-                maternal_alt = (
-                    _reanchor_alt(carried_alt(mother), mother.ref, common_ref) if mother_starts_here else None
+
+                # Collect each contributing parent's real ALTs (re-anchored to common_ref), then
+                # prefer a shared ALT when both parents contribute one. This handles the case where
+                # a parent is 1/2 (carries two different ALTs) and the "correct" worst-case pairing
+                # is with the parent's ALT that matches the other parent - not just their first ALT.
+                # Falls back to the first-listed ALT when there is no overlap.
+                m_alts = (
+                    [_reanchor_alt(a, mother.ref, common_ref) for a in carried_alts(mother)]
+                    if mother_starts_here
+                    else []
                 )
-                paternal_alt = (
-                    _reanchor_alt(carried_alt(father), father.ref, common_ref) if father_starts_here else None
+                f_alts = (
+                    [_reanchor_alt(a, father.ref, common_ref) for a in carried_alts(father)]
+                    if father_starts_here
+                    else []
                 )
+                shared = next((a for a in m_alts if a in f_alts), None)
+                if shared is not None:
+                    maternal_alt = paternal_alt = shared
+                else:
+                    maternal_alt = m_alts[0] if m_alts else None
+                    paternal_alt = f_alts[0] if f_alts else None
+
+                # GQ/DP: only the contributing parents' variant-record values. min()-ing across
+                # a non-contributing parent's ref block drags the dummy's quality down to the
+                # block's band-wide minimum (systematically lower than the contributor's site-
+                # specific GQ/DP), which was producing spuriously low GQ/DP on 0/0+0/1 sites.
+                contrib_gqs: list[int] = []
+                contrib_dps: list[int] = []
+                if mother_starts_here:
+                    contrib_gqs.append(gq_of(mother))
+                    contrib_dps.append(dp_of(mother))
+                if father_starts_here:
+                    contrib_gqs.append(gq_of(father))
+                    contrib_dps.append(dp_of(father))
+
                 emit_variant(
                     out_vcf,
                     header,
@@ -389,8 +429,8 @@ def merge_contig(
                     common_ref,
                     maternal_alt,
                     paternal_alt,
-                    min(gq_of(mother), gq_of(father)),
-                    min(dp_of(mother), dp_of(father)),
+                    min(contrib_gqs),
+                    min(contrib_dps),
                     haploid=False,
                 )
         else:
