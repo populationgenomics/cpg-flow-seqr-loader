@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Ad-hoc query: at a given locus, extract GT/GQ/DP/AD from the maternal, paternal, and dummy
 proband gVCFs and check the dummy against the synthesise_dummy_probands.py expectations:
