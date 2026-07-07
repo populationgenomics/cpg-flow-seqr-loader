@@ -1,7 +1,7 @@
 """
 Synthesize a 'dummy' male proband gVCF from a pair of parental gVCFs (RD-1168).
 
-The ravenscroft-rpl cohort contains only unaffected parental duos (no probands), so to enable
+For cohorts containing only unaffected parental duos (no probands), we can enable
 trio analysis in seqr we create a synthetic proband that inherits, at worst case, every variant
 its parents carry:
 
