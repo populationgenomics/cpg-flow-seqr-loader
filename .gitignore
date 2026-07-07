@@ -165,5 +165,8 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# scripts for running things in analysis runner
+# Scripts for running things in analysis runner
 analysis_runner_scripts/
+
+# Hidden file created by Finder
+.DS_Store
