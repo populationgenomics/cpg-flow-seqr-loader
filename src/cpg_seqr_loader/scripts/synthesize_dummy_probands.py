@@ -130,6 +130,27 @@ def gq_of(rec: pysam.VariantRecord) -> int:
     return _int(rec.samples[0].get('GQ'))
 
 
+def gq_from_pl(rec: pysam.VariantRecord) -> int:
+    """Return the sample's PL-derived GQ (second-smallest PL minus smallest PL).
+
+    The Hail gVCF combiner (and therefore seqr's loader) recomputes GQ from PL during
+    sparse_split_multi, discarding whatever value is in the stored GQ field. GATK's
+    CalculateGenotypePosteriors can inflate the stored GQ above the raw-PL value by folding in
+    posterior probabilities (GP), so using stored GQ here would make the dummy appear more
+    confident than the contributor parent will be shown as in seqr. Deriving from PL directly
+    keeps the dummy's displayed GQ aligned with the parent's.
+
+    Falls back to the stored GQ field if PL is missing or has fewer than 2 entries.
+    """
+    pl = rec.samples[0].get('PL')
+    if pl is None:
+        return gq_of(rec)
+    values = sorted(int(x) for x in pl if x is not None)
+    if len(values) < 2:
+        return gq_of(rec)
+    return max(0, values[1] - values[0])
+
+
 def dp_of(rec: pysam.VariantRecord) -> int:
     sample = rec.samples[0]
     return _int(sample.get('DP') or sample.get('MIN_DP'))
@@ -141,19 +162,63 @@ def min_dp_of(rec: pysam.VariantRecord) -> int:
 
 
 class PeekIter:
-    """A single-item lookahead wrapper over a record iterator."""
+    """Buffered iterator with a small look-ahead window.
 
-    def __init__(self, iterator) -> None:
+    GATK HaplotypeCaller can emit overlapping variant records within a single sample's gVCF at
+    complex tandem-repeat loci - typically an outer spanning deletion plus phased interior
+    insertions/SNVs. A single-record peek would only see the outer record while it's active, so
+    the interior contribution to the dummy is silently dropped (the outer pops after the sweep
+    has already advanced past the interior's position). The buffered window lets `peek_starter`
+    look ahead a few records to find an interior variant that starts at the current segment.
+
+    Window of 16 comfortably covers typical HaplotypeCaller TR clusters; scan cost is bounded by
+    the early-exit on sorted POS, so a larger window has no runtime penalty in practice.
+    """
+
+    def __init__(self, iterator, window: int = 16) -> None:
         self._iter = iter(iterator)
-        self._head = next(self._iter, None)
+        self._buffer: list[pysam.VariantRecord] = []
+        self._window = window
+        self._fill()
+
+    def _fill(self) -> None:
+        while len(self._buffer) < self._window:
+            nxt = next(self._iter, None)
+            if nxt is None:
+                break
+            self._buffer.append(nxt)
 
     def peek(self) -> pysam.VariantRecord | None:
-        return self._head
+        return self._buffer[0] if self._buffer else None
+
+    def peek_starter(self, contig: str, pos: int) -> tuple[int, pysam.VariantRecord] | None:
+        """Find a buffered variant record whose POS matches `pos` on `contig`.
+
+        Returns `(buffer_index, record)` for the first hit, else `None`. Ref blocks are skipped
+        (they can't contribute an ALT). Uses the sort-by-POS invariant to early-exit once we've
+        passed `pos`.
+        """
+        for idx, rec in enumerate(self._buffer):
+            if rec.contig != contig:
+                break
+            if rec.pos > pos:
+                break
+            if rec.pos == pos and not is_ref_block(rec):
+                return idx, rec
+        return None
 
     def pop(self) -> pysam.VariantRecord | None:
-        head = self._head
-        self._head = next(self._iter, None)
+        if not self._buffer:
+            return None
+        head = self._buffer.pop(0)
+        self._fill()
         return head
+
+    def pop_at(self, index: int) -> None:
+        """Remove a specific buffered record (used to consume out-of-order starters)."""
+        if 0 <= index < len(self._buffer):
+            self._buffer.pop(index)
+            self._fill()
 
 
 def build_output_header(template: pysam.VariantHeader, sample_name: str) -> pysam.VariantHeader:
@@ -350,7 +415,7 @@ def merge_contig(
                     mother.ref,
                     carried_alt(mother),
                     None,
-                    gq_of(mother),
+                    gq_from_pl(mother),
                     dp_of(mother),
                     haploid=True,
                 )
@@ -373,15 +438,37 @@ def merge_contig(
             # variant site - emit once, at the variant's own POS (dedupes indel-spanning segments)
             mother_starts_here = mother_var and m_start == seg_start
             father_starts_here = father_var and f_start == seg_start
-            if mother_starts_here or father_starts_here:
-                # A parent contributes its ALT only if its variant record STARTS here - a parent
-                # whose indel merely spans this position was already emitted at its own start, so
-                # including it here would create a spurious (often REF==ALT) allele.
+
+            # Look-ahead: if a parent's peek is a spanning outer variant that doesn't start here,
+            # check their buffer for an interior variant that does start here. GATK HaplotypeCaller
+            # emits overlapping records in complex TR loci (outer deletion + phased interior
+            # insertion/SNV); without look-ahead the interior would be silently dropped because
+            # the outer pops after the sweep has already advanced past the interior's position.
+            mother_starter_result = (
+                None if mother_starts_here else mother_iter.peek_starter(contig, seg_start)
+            )
+            father_starter_result = (
+                None if father_starts_here else father_iter.peek_starter(contig, seg_start)
+            )
+            mother_contributor = (
+                mother if mother_starts_here
+                else (mother_starter_result[1] if mother_starter_result else None)
+            )
+            father_contributor = (
+                father if father_starts_here
+                else (father_starter_result[1] if father_starter_result else None)
+            )
+
+            if mother_contributor is not None or father_contributor is not None:
+                # A parent contributes its ALT only if a variant record of theirs starts here (via
+                # the current peek or a buffered interior). A parent whose indel merely spans this
+                # position was already emitted at its own start; including it here would create a
+                # spurious (often REF==ALT) allele.
                 # The common REF is the longest contributing REF; each ALT is re-anchored to it
                 # (see _reanchor_alt) so a multiallelic merge of differently-anchored indels stays
                 # normalised and left-aligned for sparse_split_multi.
                 contributing_refs = [
-                    rec.ref for rec, starts in ((mother, mother_starts_here), (father, father_starts_here)) if starts
+                    rec.ref for rec in (mother_contributor, father_contributor) if rec is not None
                 ]
                 common_ref = max(contributing_refs, key=len)
 
@@ -391,13 +478,13 @@ def merge_contig(
                 # is with the parent's ALT that matches the other parent - not just their first ALT.
                 # Falls back to the first-listed ALT when there is no overlap.
                 m_alts = (
-                    [_reanchor_alt(a, mother.ref, common_ref) for a in carried_alts(mother)]
-                    if mother_starts_here
+                    [_reanchor_alt(a, mother_contributor.ref, common_ref) for a in carried_alts(mother_contributor)]
+                    if mother_contributor is not None
                     else []
                 )
                 f_alts = (
-                    [_reanchor_alt(a, father.ref, common_ref) for a in carried_alts(father)]
-                    if father_starts_here
+                    [_reanchor_alt(a, father_contributor.ref, common_ref) for a in carried_alts(father_contributor)]
+                    if father_contributor is not None
                     else []
                 )
                 shared = next((a for a in m_alts if a in f_alts), None)
@@ -411,14 +498,16 @@ def merge_contig(
                 # a non-contributing parent's ref block drags the dummy's quality down to the
                 # block's band-wide minimum (systematically lower than the contributor's site-
                 # specific GQ/DP), which was producing spuriously low GQ/DP on 0/0+0/1 sites.
+                # GQ is taken from PL (see gq_from_pl) so the dummy's displayed GQ in seqr
+                # matches what seqr shows for the contributing parent.
                 contrib_gqs: list[int] = []
                 contrib_dps: list[int] = []
-                if mother_starts_here:
-                    contrib_gqs.append(gq_of(mother))
-                    contrib_dps.append(dp_of(mother))
-                if father_starts_here:
-                    contrib_gqs.append(gq_of(father))
-                    contrib_dps.append(dp_of(father))
+                if mother_contributor is not None:
+                    contrib_gqs.append(gq_from_pl(mother_contributor))
+                    contrib_dps.append(dp_of(mother_contributor))
+                if father_contributor is not None:
+                    contrib_gqs.append(gq_from_pl(father_contributor))
+                    contrib_dps.append(dp_of(father_contributor))
 
                 emit_variant(
                     out_vcf,
@@ -433,6 +522,13 @@ def merge_contig(
                     min(contrib_dps),
                     haploid=False,
                 )
+
+                # Consume any buffered starter records so they aren't re-processed later.
+                # (The outer peek stays put and pops via the usual `m_end == seg_end` check below.)
+                if mother_starter_result:
+                    mother_iter.pop_at(mother_starter_result[0])
+                if father_starter_result:
+                    father_iter.pop_at(father_starter_result[0])
         else:
             ref_base = mother.ref[0] if m_start == seg_start else father.ref[0]
             emit_ref_block(
