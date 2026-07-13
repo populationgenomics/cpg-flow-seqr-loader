@@ -611,22 +611,25 @@ def _strip_end_from_variants(raw_path: str, out_path: str, tmp: Path) -> None:
     treats any record with a defined END as a reference block and errors if such a record has a
     non-hom-ref genotype. A record is a reference block iff its ALT is exactly <NON_REF>; every
     other record is a variant and must have END absent so the combiner reads it correctly.
+
+    Streams bgzipped raw -> bgzipped output line by line; no plain-text intermediate. The previous
+    design wrote an uncompressed VCF as an intermediate (~15-20x bgzip expansion), which on a WGS
+    run exhausted the job's disk budget.
     """
-    plain = str(tmp / 'stripped.vcf')
-    with gzip.open(raw_path, 'rt') as fin, Path(plain).open('w') as fout:
+    del tmp  # no scratch file needed with the streaming design
+    with gzip.open(raw_path, 'rt') as fin, pysam.BGZFile(out_path, 'wb') as fout:
         for line in fin:
             if line.startswith('#'):
-                fout.write(line)
+                fout.write(line.encode())
                 continue
             columns = line.rstrip('\n').split('\t')
             alt, info = columns[4], columns[7]
             if alt == '<NON_REF>' or 'END=' not in info:
-                fout.write(line)
+                fout.write(line.encode())
                 continue
             kept = [field for field in info.split(';') if not field.startswith('END=')]
             columns[7] = ';'.join(kept) if kept else '.'
-            fout.write('\t'.join(columns) + '\n')
-    pysam.tabix_compress(plain, out_path, force=True)
+            fout.write(('\t'.join(columns) + '\n').encode())
 
 
 def _next_contig(mother_iter: PeekIter, father_iter: PeekIter, contig_rank: dict[str, int]) -> str:
