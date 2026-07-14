@@ -7,15 +7,17 @@ https://storage.googleapis.com/seqr-reference-data/seqr-vcf-info.pdf). This prod
 bcftools-merged equivalent - it is NOT GATK/DRAGEN joint genotyping: calls are stitched together
 per-sample rather than re-genotyped across the cohort, QUAL/PL are not recomputed and no VQSR is
 applied. seqr's load-time validations still pass; use this for small cohorts (e.g. the synthesized
-dummy-proband duos) where full joint calling is unnecessary.
+dummy-proband trios) where full joint calling is unnecessary.
+
+Each input gVCF is pulled in together with its adjacent .tbi index (assumed to always exist beside
+the gVCF), so bcftools merge has the index it needs without an in-job indexing step.
 
 The batch job runs, in the bcftools image:
-    1. index each input gVCF (bcftools merge needs indexed inputs)
-    2. bcftools merge --gvcf <ref>   - uses INFO/END reference blocks so samples that are hom-ref at
+    1. bcftools merge --gvcf <ref>   - uses INFO/END reference blocks so samples that are hom-ref at
                                        a site read 0/0 (confident) rather than ./. (missing)
-    3. bcftools norm -m -any -f <ref> | drop <NON_REF>/<*>   - split multiallelics + left-align so
+    2. bcftools norm -m -any -f <ref> | drop <NON_REF>/<*>   - split multiallelics + left-align so
                                        every row is one normalised variant with AD length == REF+ALT
-    4. tabix index
+    3. tabix index the output
 
 This assumes each input gVCF's header already declares GT/AD/GQ (every GATK/DRAGEN gVCF and the
 dummy-synthesis output does) and relies on bcftools always emitting ##FILTER=<ID=PASS>; together
@@ -53,7 +55,11 @@ def main():
     reference_bytes = to_path(args.reference).stat().st_size
     job.storage(input_bytes + reference_bytes + 10 * GIGABYTE)
 
-    local_inputs = [batch.read_input(gvcf) for gvcf in args.input]
+    # pull each gVCF in together with its adjacent .tbi (shared root) so merge finds the index
+    local_inputs = [
+        batch.read_input_group(**{'g.vcf.gz': gvcf, 'g.vcf.gz.tbi': f'{gvcf}.tbi'})['g.vcf.gz']
+        for gvcf in args.input
+    ]
     inputs_arg = ' '.join(str(gvcf) for gvcf in local_inputs)
 
     # colocate the .fai beside the .fa (read_input_group localises to a shared root) so `-f` finds it
@@ -68,11 +74,6 @@ def main():
     job.command(
         f"""
         set -euo pipefail
-
-        # bcftools merge needs indexed inputs
-        for gvcf in {inputs_arg}; do
-            bcftools index --tbi --force "$gvcf"
-        done
 
         # --gvcf uses INFO/END reference blocks so hom-ref samples read 0/0 (confident), not ./.
         bcftools merge --gvcf {reference} -Oz -o $BATCH_TMPDIR/merged.vcf.gz {inputs_arg}
