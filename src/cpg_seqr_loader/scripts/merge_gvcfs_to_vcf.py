@@ -91,7 +91,7 @@ def main():
     batch.write_output(job.output.vcf, args.output)
     batch.write_output(job.output.tbi, args.output + '.tbi')
 
-    batch.run()
+    batch.run(wait=False)
 
 
 if __name__ == '__main__':
