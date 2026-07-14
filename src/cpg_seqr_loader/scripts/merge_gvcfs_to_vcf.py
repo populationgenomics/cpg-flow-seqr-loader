@@ -12,12 +12,14 @@ dummy-proband trios) where full joint calling is unnecessary.
 Each input gVCF is pulled in together with its adjacent .tbi index (assumed to always exist beside
 the gVCF), so bcftools merge has the index it needs without an in-job indexing step.
 
-The batch job runs, in the bcftools image:
+The batch job streams a single pipe, in the bcftools image (no on-disk intermediate):
     1. bcftools merge --gvcf <ref>   - uses INFO/END reference blocks so samples that are hom-ref at
                                        a site read 0/0 (confident) rather than ./. (missing)
-    2. bcftools norm -m -any -f <ref> | drop <NON_REF>/<*>   - split multiallelics + left-align so
-                                       every row is one normalised variant with AD length == REF+ALT
-    3. tabix index the output
+    2. bcftools norm -m -any -f <ref> --check-ref x   - split multiallelics + left-align so every row
+                                       is one normalised variant with AD length == REF+ALT, dropping
+                                       rows whose REF disagrees with the FASTA (non-ACGTN alleles)
+    3. bcftools view   - drop the gVCF <NON_REF>/<*> symbolic rows
+    4. tabix index the output
 
 This assumes each input gVCF's header already declares GT/AD/GQ (every GATK/DRAGEN gVCF and the
 dummy-synthesis output does) and relies on bcftools always emitting ##FILTER=<ID=PASS>; together
@@ -50,7 +52,9 @@ def main():
     job = batch.new_job(name='Merge gVCFs to VCF')
     job.image(image_path('bcftools'))
 
-    # size storage to hold the localised inputs + reference plus room for intermediates/output
+    # size storage to hold the localised inputs + reference plus headroom for the streamed output.
+    # merge -> norm -> view is piped (see below), so there is no multi-GB on-disk intermediate to
+    # budget for - only the final output.vcf.gz lands on disk alongside the inputs.
     input_bytes = sum(to_path(p).stat().st_size for p in args.input)
     reference_bytes = to_path(args.reference).stat().st_size
     job.storage(input_bytes + reference_bytes + 10 * GIGABYTE)
@@ -75,12 +79,19 @@ def main():
         f"""
         set -euo pipefail
 
-        # --gvcf uses INFO/END reference blocks so hom-ref samples read 0/0 (confident), not ./.
-        bcftools merge --gvcf {reference} -Oz -o $BATCH_TMPDIR/merged.vcf.gz {inputs_arg}
-
-        # split multiallelics + left-align, then drop the gVCF <NON_REF>/<*> symbolic rows so every
-        # remaining row is one normalised variant with AD length == REF + ALT
-        bcftools norm -m -any -f {reference} -Ou $BATCH_TMPDIR/merged.vcf.gz \\
+        # Stream merge -> norm -> view in a single pipe with -Ou (uncompressed BCF) between stages,
+        # so no multi-GB intermediate is written to disk. The previous version materialised
+        # merged.vcf.gz (~7GB for a WGS trio); on the job disk that filled alongside the localised
+        # inputs + reference, silently truncating the intermediate, which norm then failed to read
+        # (BGZF read error, exit 9).
+        #
+        # merge --gvcf uses INFO/END reference blocks so hom-ref samples read 0/0 (confident), not ./.
+        # norm -m -any splits multiallelics + left-aligns; --check-ref x drops rows whose REF doesn't
+        # match the FASTA (e.g. IUPAC 'Y' where the reference is 'N'), which seqr's non-ACGTN
+        # reference-allele validation would otherwise reject. view then drops the gVCF <NON_REF>/<*>
+        # symbolic rows so every remaining row is one normalised variant with AD length == REF + ALT.
+        bcftools merge --gvcf {reference} -Ou {inputs_arg} \\
+            | bcftools norm -m -any -f {reference} --check-ref x -Ou \\
             | bcftools view -e 'ALT="<NON_REF>" || ALT="<*>"' -Oz -o {job.output.vcf}
 
         tabix -p vcf {job.output.vcf}
