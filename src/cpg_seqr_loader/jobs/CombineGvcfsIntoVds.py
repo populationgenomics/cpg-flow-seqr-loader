@@ -127,6 +127,14 @@ def create_combiner_jobs(
         loguru.logger.info(f'Checking if VDS exists: {output_vds}: {output_vds.exists()}')
         return None
 
+    # New logic - if we are using a dummy gvcf text file, skip all the above logic and just use the dummy gvcf text file as input to the combiner
+    if dummy_gvcf_text_file := config.config_retrieve(['combiner', 'dummy_gvcf_text_file'], None):
+        loguru.logger.info(f'Using dummy gVCF text file: {dummy_gvcf_text_file}')
+        localised_version = hail_batch.get_batch().read_input(str(dummy_gvcf_text_file))
+        gvcf_add_arg = f'--gvcf_add_file {localised_version}'
+    else:
+        pass # figure this out
+
     gvcf_add_arg = ''
     if new_sg_gvcfs:
         # write the gVCF paths into a temporary file

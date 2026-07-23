@@ -29,6 +29,54 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 
 SHARD_MANIFEST = 'shard-manifest.txt'
 
+@stage.stage
+class GenerateDummyProbands(stage.MultiCohortStage):
+    """
+    Generate dummy proband inputs for the combiner, to allow the combiner to run on a single dataset
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
+        # Create the dummy proband gvcf output paths dynamically
+        # Possible but has challenges
+        # To register analyses, submit registration jobs manually, don't rely on the stage decorator
+
+        # gvcfs = utils.get_families_for_dummy_probands(multicohort)
+        return {
+            #'proband_gvcf': self.tmp_prefix / '{family_id}_dummy_proband.g.vcf.gz',
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        output = self.expected_outputs(multicohort)
+
+        job = utils.generate_dummy_proband_inputs(  # create this job which invokes the script to generate dummy proband gvcfs
+            multicohort=multicohort,
+            output_path=output,
+            job_attrs=self.get_job_attrs(multicohort),
+        )
+        return self.make_outputs(multicohort, data=output, jobs=job)
+
+@stage.stage
+class GenerateDummyProbandsCombinerInputs(stage.MultiCohortStage):
+    """
+    Generate dummy proband inputs for the combiner, to allow the combiner to run on a single dataset
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
+        return {
+            'gvcfs_list': self.tmp_prefix / 'all_gvcf_paths_including_dummy_gvcfs.txt',
+            'pedigree': self.tmp_prefix / 'dummy_pedigree.ped',
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        output = self.expected_outputs(multicohort)
+
+        job = utils.generate_dummy_proband_inputs(  # create this job which invokes the script to generate dummy proband gvcfs
+            multicohort=multicohort,
+            output_path=output,
+            job_attrs=self.get_job_attrs(multicohort),
+        )
+        return self.make_outputs(multicohort, data=output, jobs=job)
+
 
 @stage.stage(analysis_type='combiner', analysis_keys=['vds'])
 class CombineGvcfsIntoVds(stage.MultiCohortStage):
