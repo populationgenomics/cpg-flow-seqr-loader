@@ -8,11 +8,12 @@ import hashlib
 from typing import TYPE_CHECKING
 
 import loguru
-from cpg_flow import targets
-from cpg_utils import Path, config, hail_batch, to_path
 from metamist.graphql import gql, query
 
 import hail as hl
+
+from cpg_flow import targets
+from cpg_utils import Path, config, hail_batch, to_path
 
 if TYPE_CHECKING:
     from hailtop.batch.resource import ResourceGroup

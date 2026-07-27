@@ -56,10 +56,11 @@ from argparse import ArgumentParser
 from os.path import join
 
 import loguru
-from cpg_flow import utils
-from cpg_utils import Path, config, hail_batch, to_path
 
 import hail as hl
+
+from cpg_flow import utils
+from cpg_utils import Path, config, hail_batch, to_path
 
 from cpg_seqr_loader.hail_scripts import variant_id, vep
 
