@@ -21,6 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
+    'analysis-runner',
     'cpg-flow~=1.3',
     'elasticsearch==8.*',
 ]
@@ -108,7 +109,7 @@ ignore = [
 section-order = ["future", "standard-library", "third-party", "hail", "cpg", "first-party", "local-folder"]
 
 [tool.ruff.lint.isort.sections]
-cpg = ["cpg_seqr_loader", "talos", "cpg-flow", "cpg-utils"]
+cpg = ["analysis-runner", "cpg_flow", "cpg_utils"]
 hail = ["hail"]
 
 
