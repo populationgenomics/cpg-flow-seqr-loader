@@ -1,9 +1,10 @@
 from argparse import ArgumentParser
 
-from cpg_utils import config, hail_batch
 from loguru import logger
 
 import hail as hl
+
+from cpg_utils import config, hail_batch
 
 
 def vcf_from_mt_subset(input_mt: str, output: str):

@@ -18,9 +18,9 @@ some inspo here
 import logging
 from argparse import ArgumentParser
 
-from cpg_utils import hail_batch, to_path
-
 import hail as hl
+
+from cpg_utils import hail_batch, to_path
 
 
 def get_naive_intervals(ht: hl.Table, intervals: int) -> list[tuple[str, int, int]]:

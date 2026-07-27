@@ -1,8 +1,8 @@
 import argparse
 
-from cpg_utils import config, hail_batch
-
 import hail as hl
+
+from cpg_utils import config, hail_batch
 
 
 def main():

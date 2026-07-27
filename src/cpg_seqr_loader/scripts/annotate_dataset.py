@@ -4,10 +4,11 @@ Read in a MT, and re-jig the annotations ready for Seqr Export
 
 from argparse import ArgumentParser
 
-from cpg_utils import config, hail_batch
 from loguru import logger
 
 import hail as hl
+
+from cpg_utils import config, hail_batch
 
 
 def annotate_dataset_mt(mt_path: str, out_mt_path: str) -> None:
