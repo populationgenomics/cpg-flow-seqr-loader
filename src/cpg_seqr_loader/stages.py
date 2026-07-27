@@ -21,6 +21,7 @@ from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_j
 from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
+from cpg_seqr_loader.jobs.ResubmitWorkflow import resubmit_full_workflow
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
 from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
 from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
@@ -53,6 +54,21 @@ class CombineGvcfsIntoVds(stage.MultiCohortStage):
             temp_dir_string=outputs['tmp'],
             job_attrs=self.get_job_attrs(multicohort),
         )
+        return self.make_outputs(multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=[CombineGvcfsIntoVds])
+class SubmitPostCombinerWorkflow(stage.MultiCohortStage):
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        return {
+            'resubmit': self.prefix / f'{multicohort.name}_resubmitted.toml',
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(multicohort)
+
+        job = resubmit_full_workflow(str(outputs['resubmit']))
+
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 

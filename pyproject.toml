@@ -8,7 +8,7 @@ description='Seqr-Loader (gVCF-combiner) implemented in CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
 requires-python = ">=3.10,<3.12"
-version="0.2.9"
+version="0.3.0"
 license={"file" = "LICENSE"}
 classifiers=[
     'Environment :: Console',
@@ -21,6 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
+    'analysis-runner',
     'cpg-flow~=1.3',
     'elasticsearch==8.*',
 ]
@@ -51,19 +52,6 @@ include_package_data = true
 
 [options.package_data]
 'cpg_seqr_loader'=  ['config_template.toml']
-
-[tool.black]
-line-length = 120
-skip-string-normalization = true
-exclude = '''
-/(
-  venv
-  | \.mypy_cache
-  | \.venv
-  | build
-  | dist
-)/
-'''
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -108,7 +96,7 @@ ignore = [
 section-order = ["future", "standard-library", "third-party", "hail", "cpg", "first-party", "local-folder"]
 
 [tool.ruff.lint.isort.sections]
-cpg = ["cpg_flow", "cpg_utils"]
+cpg = ["analysis-runner", "cpg_flow", "cpg_utils"]
 hail = ["hail"]
 
 
@@ -120,7 +108,7 @@ hail = ["hail"]
 "src/cpg_seqr_loader/scripts/annotate_cohort.py" = ["E501"]
 
 [tool.bumpversion]
-current_version = "0.2.9"
+current_version = "0.3.0"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 commit = true
