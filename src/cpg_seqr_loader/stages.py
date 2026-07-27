@@ -61,7 +61,7 @@ class CombineGvcfsIntoVds(stage.MultiCohortStage):
 class SubmitPostCombinerWorkflow(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
         return {
-            'resubmit': self.prefix / f'{multicohort.name}_resubmitted.txt',
+            'resubmit': self.prefix / f'{multicohort.name}_resubmitted.toml',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:

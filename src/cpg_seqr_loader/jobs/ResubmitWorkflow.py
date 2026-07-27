@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
-from cpg_utils import hail_batch, config
-
+from cpg_utils import config, hail_batch
 
 if TYPE_CHECKING:
     from hailtop.batch.job import PythonJob
@@ -11,13 +10,14 @@ def submission_python_job(output_path: str):
     """"""
     import toml
     from analysis_runner.cli_analysisrunner import run_analysis_runner
+
     from cpg_utils import config, to_path
 
     # make sure the config is loaded
     _ar = config.config_retrieve(['workflow', 'ar-guid'])
 
     # pop off any workflow-unique attributes
-    config_dict = dict(config._config)
+    config_dict = dict(config._config)  # noqa: SLF001
     _ar = config_dict['workflow'].pop('ar-guid')
 
     with open('config.toml', 'w') as config_file:

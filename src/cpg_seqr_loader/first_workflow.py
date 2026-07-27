@@ -8,7 +8,7 @@ import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import SubmitPostCombinerWorkflow, DeleteCombinerTemp
+from cpg_seqr_loader.stages import DeleteCombinerTemp, SubmitPostCombinerWorkflow
 
 
 def cli_main():
