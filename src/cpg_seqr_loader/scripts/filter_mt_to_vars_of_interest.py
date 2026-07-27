@@ -23,10 +23,10 @@ Filter by genomic intervals (e.g., exons, promoters)
 
 from argparse import ArgumentParser
 
+import hail as hl
+
 from cpg_utils import config
 from cpg_utils.hail_batch import init_batch
-
-import hail as hl
 
 # Default values
 POP_AF = 0.01

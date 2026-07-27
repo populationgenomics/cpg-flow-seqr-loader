@@ -36,7 +36,7 @@ def create_es_export_job(
     job.command(f'gcloud --no-user-output-enabled storage cp -r {mt_path} $BATCH_TMPDIR')
 
     # and just the name, used after localisation
-    mt_name = mt_path.split('/')[-1]
+    mt_name = mt_path.rsplit('/', maxsplit=1)[-1]
 
     # run the export from the localised MT - this job writes no new data, just transforms and exports over network
     job.command(

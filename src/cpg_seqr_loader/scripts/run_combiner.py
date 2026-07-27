@@ -8,10 +8,11 @@ import argparse
 import logging
 
 import loguru
-from cpg_flow import utils
-from cpg_utils import config, hail_batch, to_path
 
 import hail as hl
+
+from cpg_flow import utils
+from cpg_utils import config, hail_batch, to_path
 
 from cpg_seqr_loader.utils import read_bed_file_as_intervals
 

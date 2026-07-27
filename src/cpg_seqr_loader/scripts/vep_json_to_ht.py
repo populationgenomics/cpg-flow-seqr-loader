@@ -6,9 +6,9 @@ Decoding a JSON string is an expensive operation, so we provide a fixed schema.
 
 import argparse
 
-from cpg_utils import config, hail_batch
-
 import hail as hl
+
+from cpg_utils import config, hail_batch
 
 
 def vep_json_to_ht(vep_result_paths: list[str], out_path: str):

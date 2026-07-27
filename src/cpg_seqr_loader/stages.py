@@ -4,10 +4,11 @@ use the gVCF combiner instead of joint-calling.
 """
 
 import loguru
+from google.api_core.exceptions import PermissionDenied
+
 from cpg_flow import stage, targets, workflow
 from cpg_flow.stage import StageOutput
 from cpg_utils import Path, cloud, config
-from google.api_core.exceptions import PermissionDenied
 
 from cpg_seqr_loader import utils
 from cpg_seqr_loader.jobs.AnnotateCohort import create_annotate_cohort_job
