@@ -192,6 +192,21 @@ class ElasticsearchClient:
                 # this is used in seqr-loading-pipelines, but not writing these would
                 # result in a much smaller index
                 'es.spark.dataframe.write.null': 'true',
+                # --- connection robustness for long WAN exports to Elastic Cloud ---
+                # Elastic Cloud sits behind a proxy/LB that drops long or idle
+                # connections. On defaults (1m timeout, 3 retries) a transient blip
+                # over a multi-hour export throws EsHadoopNoNodesLeftException and,
+                # because Spark local mode does not retry tasks, aborts everything.
+                # These settings let each partition ride out network interruptions.
+                'es.http.timeout': '5m',  # per-request HTTP timeout (default 1m)
+                'es.http.retries': '10',  # retries per broken HTTP connection (default 3)
+                'es.batch.write.retry.count': '-1',  # retry bulk writes indefinitely (default 3)
+                'es.batch.write.retry.wait': '30s',  # backoff between bulk retries (default 10s)
+                # We already set index.refresh_interval=-1 on the mapping and
+                # forcemerge at the end, so the connector's per-partition refresh
+                # at task close is a redundant network round-trip and a common
+                # point of failure. Skip it.
+                'es.batch.write.refresh': 'false',
                 # We are not explicitly indexing the ES Index on varianId at this time
                 # we should probably investigate this in future, but if we index on variantId
                 # we run into the possibility that gCNV (currently multiple separate indices)
