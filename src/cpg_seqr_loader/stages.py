@@ -57,21 +57,6 @@ class CombineGvcfsIntoVds(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=[CombineGvcfsIntoVds])
-class SubmitPostCombinerWorkflow(stage.MultiCohortStage):
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
-        return {
-            'resubmit': self.prefix / f'{multicohort.name}_resubmitted.toml',
-        }
-
-    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        outputs = self.expected_outputs(multicohort)
-
-        job = resubmit_full_workflow(str(outputs['resubmit']))
-
-        return self.make_outputs(multicohort, data=outputs, jobs=job)
-
-
 @stage.stage(required_stages=CombineGvcfsIntoVds)
 class DeleteCombinerTemp(stage.MultiCohortStage):
     """
@@ -146,6 +131,21 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
             job_attrs=self.get_job_attrs(multicohort),
         )
         return self.make_outputs(target=multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
+class SubmitPostCombinerWorkflow(stage.MultiCohortStage):
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        return {
+            'resubmit': self.prefix / f'{multicohort.name}_resubmitted.toml',
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(multicohort)
+
+        job = resubmit_full_workflow(str(outputs['resubmit']))
+
+        return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
 @stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
