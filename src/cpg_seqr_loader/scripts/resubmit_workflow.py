@@ -1,7 +1,8 @@
-import toml
 from argparse import ArgumentParser
 
+import toml
 from analysis_runner.cli_analysisrunner import run_analysis_runner
+
 from cpg_utils import config, to_path
 
 
