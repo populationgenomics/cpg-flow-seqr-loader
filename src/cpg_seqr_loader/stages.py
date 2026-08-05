@@ -30,25 +30,26 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 SHARD_MANIFEST = 'shard-manifest.txt'
 
 @stage.stage
-class GenerateDummyProbands(stage.MultiCohortStage):
+class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
     """
-    Generate dummy proband inputs for the combiner, to allow the combiner to run on a single dataset
+    Generate synthetic proband gVCFs for each duo family in the multicohort, so the combiner can
+    build a trio-shaped VDS for cohorts that only contain unaffected parental duos.
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        # Create the dummy proband gvcf output paths dynamically
+        # Create the synthetic proband gVCF output paths dynamically
         # Possible but has challenges
         # To register analyses, submit registration jobs manually, don't rely on the stage decorator
 
-        # gvcfs = utils.get_families_for_dummy_probands(multicohort)
+        # gvcfs = utils.get_families_for_synthetic_probands(multicohort)
         return {
-            #'proband_gvcf': self.tmp_prefix / '{family_id}_dummy_proband.g.vcf.gz',
+            #'proband_gvcf': self.tmp_prefix / '{family_id}_synthetic_proband.g.vcf.gz',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        job = utils.generate_dummy_proband_inputs(  # create this job which invokes the script to generate dummy proband gvcfs
+        job = utils.generate_synthetic_proband_inputs(  # create this job which invokes the script to generate synthetic proband gVCFs
             multicohort=multicohort,
             output_path=output,
             job_attrs=self.get_job_attrs(multicohort),
@@ -56,21 +57,21 @@ class GenerateDummyProbands(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 @stage.stage
-class GenerateDummyProbandsCombinerInputs(stage.MultiCohortStage):
+class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
     """
-    Generate dummy proband inputs for the combiner, to allow the combiner to run on a single dataset
+    Build the combiner inputs (gVCF manifest + pedigree) for the synthetic proband workflow.
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
         return {
-            'gvcfs_list': self.tmp_prefix / 'all_gvcf_paths_including_dummy_gvcfs.txt',
-            'pedigree': self.tmp_prefix / 'dummy_pedigree.ped',
+            'gvcfs_list': self.tmp_prefix / 'all_gvcf_paths_including_synthetic_gvcfs.txt',
+            'pedigree': self.tmp_prefix / 'synthetic_pedigree.ped',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(multicohort)
 
-        job = utils.generate_dummy_proband_inputs(  # create this job which invokes the script to generate dummy proband gvcfs
+        job = utils.generate_synthetic_proband_inputs(  # create this job which invokes the script to generate synthetic proband gVCFs
             multicohort=multicohort,
             output_path=output,
             job_attrs=self.get_job_attrs(multicohort),

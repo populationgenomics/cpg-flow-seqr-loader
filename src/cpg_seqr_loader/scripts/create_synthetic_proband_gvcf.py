@@ -1,8 +1,8 @@
 """
-Synthesize a 'dummy' male proband gVCF from a pair of parental gVCFs (RD-1168).
+Synthesize a synthetic male proband gVCF from a pair of parental gVCFs (RD-1168).
 
 For cohorts containing only unaffected parental duos (no probands), we can enable
-trio analysis in seqr we create a synthetic proband that inherits, at worst case, every variant
+trio analysis in seqr by creating a synthetic proband that inherits, at worst case, every variant
 its parents carry:
 
     autosomes / chrX PAR : maternal allele = ALT iff mother carries any ALT
@@ -14,8 +14,8 @@ its parents carry:
 
 The output is a spec-valid GATK-style gVCF *with <NON_REF> reference blocks*, so that once it is
 combined with the real samples it reads as confident hom-ref (0/0) - not missing - at sites that
-are variant only in other families. The dummy's reference blocks are the intersection of the two
-parents' hom-ref bands, split at the union of their variant sites.
+are variant only in other families. The synthetic proband's reference blocks are the intersection
+of the two parents' hom-ref bands, split at the union of their variant sites.
 
 This phase is gVCF synthesis only. Metamist registration (participant/sample/SG creation,
 pedigree import, gvcf analysis linking) and the VDS/seqr workflow wiring are handled separately.
@@ -34,8 +34,9 @@ from loguru import logger
 # symbolic non-reference alleles used by GATK gVCFs
 NON_REF_ALLELES = {'<NON_REF>', '<*>'}
 
-# GRCh38 pseudoautosomal regions on chrX (1-based, inclusive). Inside these the dummy is diploid;
-# outside them (non-PAR chrX) the male dummy is hemizygous and inherits only from the mother.
+# GRCh38 pseudoautosomal regions on chrX (1-based, inclusive). Inside these the synthetic proband
+# is diploid; outside them (non-PAR chrX) the male synthetic proband is hemizygous and inherits
+# only from the mother.
 PAR_X_REGIONS = [
     (10_001, 2_781_479),  # PAR1
     (155_701_383, 156_030_895),  # PAR2
@@ -136,9 +137,9 @@ def gq_from_pl(rec: pysam.VariantRecord) -> int:
     The Hail gVCF combiner (and therefore seqr's loader) recomputes GQ from PL during
     sparse_split_multi, discarding whatever value is in the stored GQ field. GATK's
     CalculateGenotypePosteriors can inflate the stored GQ above the raw-PL value by folding in
-    posterior probabilities (GP), so using stored GQ here would make the dummy appear more
-    confident than the contributor parent will be shown as in seqr. Deriving from PL directly
-    keeps the dummy's displayed GQ aligned with the parent's.
+    posterior probabilities (GP), so using stored GQ here would make the synthetic proband appear
+    more confident than the contributor parent will be shown as in seqr. Deriving from PL directly
+    keeps the synthetic proband's displayed GQ aligned with the parent's.
 
     Falls back to the stored GQ field if PL is missing or has fewer than 2 entries.
     """
@@ -167,7 +168,7 @@ class PeekIter:
     GATK HaplotypeCaller can emit overlapping variant records within a single sample's gVCF at
     complex tandem-repeat loci - typically an outer spanning deletion plus phased interior
     insertions/SNVs. A single-record peek would only see the outer record while it's active, so
-    the interior contribution to the dummy is silently dropped (the outer pops after the sweep
+    the interior contribution to the synthetic proband is silently dropped (the outer pops after the sweep
     has already advanced past the interior's position). The buffered window lets `peek_starter`
     look ahead a few records to find an interior variant that starts at the current segment.
 
@@ -259,8 +260,8 @@ def clone_record(
     Site-level INFO annotations are deliberately dropped: the Hail gVCF combiner does not need
     them (site annotations are recomputed downstream via VQSR/Hail), and copying them verbatim is
     fragile across headers (e.g. a multi-valued MLEAC/MLEAF from a multiallelic site fails against
-    the mother-derived output header). END is preserved via stop=, matching the rest of the dummy
-    gVCF, which also carries no INFO. Only FORMAT fields the output header declares are copied.
+    the mother-derived output header). END is preserved via stop=, matching the rest of the
+    synthetic gVCF, which also carries no INFO. Only FORMAT fields the output header declares are copied.
     """
     out = header.new_record(
         contig=src.contig,
@@ -291,7 +292,7 @@ def emit_variant(
     *,
     haploid: bool,
 ) -> None:
-    """Write one dummy variant record applying the worst-case inheritance rule at this site."""
+    """Write one synthetic variant record applying the worst-case inheritance rule at this site."""
     alts: list[str] = []
     for alt in (maternal_alt, paternal_alt):
         if alt and alt not in alts:
@@ -355,7 +356,7 @@ def emit_ref_block(
     *,
     haploid: bool,
 ) -> None:
-    """Write one dummy <NON_REF> reference block spanning [start, end] (1-based inclusive)."""
+    """Write one synthetic <NON_REF> reference block spanning [start, end] (1-based inclusive)."""
     # passing stop=end makes pysam emit INFO/END for the block (END is a reserved field set via stop)
     out = header.new_record(contig=contig, start=start - 1, stop=end, alleles=(ref_base, '<NON_REF>'))
     out.qual = None
@@ -391,7 +392,7 @@ def merge_contig(
         seg_start = max(m_start, f_start)
         seg_end = min(m_end, f_end)
 
-        # no overlap (a single-parent coverage gap) - drop the earlier interval, dummy is missing there
+        # no overlap (a single-parent coverage gap) - drop the earlier interval, synthetic proband is missing there
         if seg_start > seg_end:
             if m_end < f_start:
                 mother_iter.pop()
@@ -495,10 +496,10 @@ def merge_contig(
                     paternal_alt = f_alts[0] if f_alts else None
 
                 # GQ/DP: only the contributing parents' variant-record values. min()-ing across
-                # a non-contributing parent's ref block drags the dummy's quality down to the
-                # block's band-wide minimum (systematically lower than the contributor's site-
+                # a non-contributing parent's ref block drags the synthetic proband's quality down to
+                # the block's band-wide minimum (systematically lower than the contributor's site-
                 # specific GQ/DP), which was producing spuriously low GQ/DP on 0/0+0/1 sites.
-                # GQ is taken from PL (see gq_from_pl) so the dummy's displayed GQ in seqr
+                # GQ is taken from PL (see gq_from_pl) so the synthetic proband's displayed GQ in seqr
                 # matches what seqr shows for the contributing parent.
                 contrib_gqs: list[int] = []
                 contrib_dps: list[int] = []
@@ -549,13 +550,13 @@ def merge_contig(
         if f_end == seg_end:
             father_iter.pop()
 
-    # discard any single-parent tail left on this contig (dummy is missing there)
+    # discard any single-parent tail left on this contig (synthetic proband is missing there)
     _skip_contig(mother_iter, contig)
     _skip_contig(father_iter, contig)
 
 
-def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, out_path: str) -> None:
-    """Generate the dummy proband gVCF at out_path from the two parental gVCFs."""
+def create_synthetic_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, out_path: str) -> None:
+    """Generate the synthetic proband gVCF at out_path from the two parental gVCFs."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
         local_mother = _localise(mother_gvcf, tmp)
@@ -563,7 +564,7 @@ def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, 
         # pysam forces INFO/END onto every record it writes (END is declared in the header), so we
         # write to a raw file first then strip END off variant lines in a text pass (see below).
         local_raw = str(tmp / 'raw.g.vcf.gz')
-        local_out = str(tmp / 'dummy.g.vcf.gz')
+        local_out = str(tmp / 'synthetic.g.vcf.gz')
 
         with pysam.VariantFile(local_mother) as mother_vcf, pysam.VariantFile(local_father) as father_vcf:
             header = build_output_header(mother_vcf.header, sample_name)
@@ -601,7 +602,7 @@ def synthesize_dummy_gvcf(mother_gvcf: str, father_gvcf: str, sample_name: str, 
         pysam.tabix_index(local_out, preset='vcf', force=True)
         _delocalise(local_out, out_path)
         _delocalise(local_out + '.tbi', out_path + '.tbi')
-        logger.info(f'Wrote dummy proband gVCF for {sample_name} to {out_path}')
+        logger.info(f'Wrote synthetic proband gVCF for {sample_name} to {out_path}')
 
 
 def _strip_end_from_variants(raw_path: str, out_path: str, tmp: Path) -> None:
@@ -657,7 +658,7 @@ def _copy_contig(
     header: pysam.VariantHeader,
     sample_name: str,
 ) -> None:
-    """Clone every leading record on the given contig into the output, renamed to the dummy sample."""
+    """Clone every leading record on the given contig into the output, renamed to the synthetic proband sample."""
     while _on_contig(iterator, contig):
         out_vcf.write(clone_record(header, sample_name, iterator.pop()))
 
@@ -682,13 +683,13 @@ def _delocalise(local_path: str, out_path: str) -> None:
 
 def cli_main():
     """CLI entrypoint."""
-    parser = ArgumentParser(description='Synthesize a dummy male proband gVCF from two parental gVCFs')
+    parser = ArgumentParser(description='Synthesize a synthetic male proband gVCF from two parental gVCFs')
     parser.add_argument('--mother_gvcf', required=True, help='Path to the maternal gVCF (.g.vcf.gz)')
     parser.add_argument('--father_gvcf', required=True, help='Path to the paternal gVCF (.g.vcf.gz)')
-    parser.add_argument('--output', required=True, help='Output dummy gVCF path (.g.vcf.gz)')
-    parser.add_argument('--sample_name', required=True, help='Sample (SM) name for the dummy proband')
+    parser.add_argument('--output', required=True, help='Output synthetic gVCF path (.g.vcf.gz)')
+    parser.add_argument('--sample_name', required=True, help='Sample (SM) name for the synthetic proband')
     args = parser.parse_args()
-    synthesize_dummy_gvcf(
+    create_synthetic_gvcf(
         mother_gvcf=args.mother_gvcf,
         father_gvcf=args.father_gvcf,
         sample_name=args.sample_name,

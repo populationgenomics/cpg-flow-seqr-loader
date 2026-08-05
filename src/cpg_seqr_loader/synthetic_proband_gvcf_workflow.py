@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
 """
-The entry point for the pre-first workflow, creating dummy proband gvcfs to go in to the combiner (first_workflow)
+The entry point for the pre-first workflow, creating synthetic proband gVCFs to go in to the combiner (first_workflow)
 """
 
 import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import GenerateDummyProbands, GenerateDummyProbandsCombinerInputs
+from cpg_seqr_loader.stages import GenerateSyntheticProbandGvcfs, GenerateSyntheticProbandCombinerInputs
 
 
 def cli_main():
@@ -18,7 +18,7 @@ def cli_main():
 
     workflow.run_workflow(
         name='seqr_loader',
-        stages=[GenerateDummyProbands, GenerateDummyProbandsCombinerInputs],
+        stages=[GenerateSyntheticProbandGvcfs, GenerateSyntheticProbandCombinerInputs],
         dry_run=args.dry_run,
     )
 
