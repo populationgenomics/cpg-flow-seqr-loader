@@ -5,6 +5,7 @@ suggested location for any utility methods or constants used across multiple sta
 import datetime
 import functools
 import hashlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import loguru
@@ -282,6 +283,106 @@ def get_family_sequencing_groups(dataset: targets.Dataset) -> dict | None:
     name_suffix = f'{len(family_sg_ids)}_sgs-{len(only_family_ids)}_families-{h}'
 
     return {'family_sg_ids': family_sg_ids, 'name_suffix': name_suffix}
+
+
+# ---------------------------------------------------------------------------
+# Synthetic proband workflow helpers (see synthetic_proband_gvcf_workflow.py)
+# ---------------------------------------------------------------------------
+
+SYNTHETIC_GVCF_ANALYSIS_TYPE = 'synthetic_gvcf'
+
+
+@dataclass(frozen=True)
+class SyntheticProbandFamily:
+    """One duo family in the multicohort, plus the invented name for its synthetic proband.
+
+    The synthetic_sample_name string is the single source of truth for the synthetic proband's
+    identity across the pre-workflow: it is embedded in the gVCF header (as the sample column
+    name), written into the PED file as the proband row's individual ID, and later appears in the
+    seqr MatrixTable as a sample ID. The three MUST match or seqr's trio inheritance filters will
+    silently fail (pedigree references a proband that isn't present in the callset).
+    """
+
+    family_id: str
+    mother_sg: targets.SequencingGroup
+    father_sg: targets.SequencingGroup
+    synthetic_sample_name: str
+
+
+@functools.cache
+def get_families_for_synthetic_probands(
+    multicohort: targets.MultiCohort,
+) -> list[SyntheticProbandFamily]:
+    """Enumerate the duo-only families in the multicohort that qualify for synthetic-proband generation.
+
+    A family qualifies iff all of:
+      - exactly two sequencing groups share its family_id
+      - one has pedigree sex MALE, one has pedigree sex FEMALE
+      - neither member's pedigree references a parent (i.e. both members are themselves parents;
+        no real proband is present in the family)
+      - both members have a gVCF registered in metamist
+
+    Families that don't match are logged and skipped, not raised, so a mixed multicohort still
+    produces synthetic probands for the families that do qualify.
+    """
+    grouped: dict[str, list[targets.SequencingGroup]] = {}
+    for sg in multicohort.get_sequencing_groups():
+        family_id = sg.pedigree.fam_id
+        if not family_id:
+            loguru.logger.warning(f'Skipping SG {sg.id}: no family_id set in pedigree')
+            continue
+        grouped.setdefault(family_id, []).append(sg)
+
+    families: list[SyntheticProbandFamily] = []
+    for family_id, members in grouped.items():
+        if len(members) != 2:
+            loguru.logger.warning(
+                f'Skipping family {family_id}: expected 2 members, got {len(members)}',
+            )
+            continue
+
+        # Any member with dad or mom set is a child within this family (indicates a real proband),
+        # so this isn't a parental duo we should synthesize for.
+        if any(m.pedigree.dad or m.pedigree.mom for m in members):
+            loguru.logger.warning(
+                f'Skipping family {family_id}: at least one member has parents set in the pedigree '
+                '(suggests a real proband is present, not a parental duo)',
+            )
+            continue
+
+        # Compare sex by enum name (Sex.__str__ returns .name) to avoid importing the enum, which
+        # is defined in cpg_workflows.targets and not necessarily re-exported by cpg_flow.
+        sex_to_sg = {m.pedigree.sex.name: m for m in members}
+        if set(sex_to_sg) != {'MALE', 'FEMALE'}:
+            observed = [m.pedigree.sex.name for m in members]
+            loguru.logger.warning(
+                f'Skipping family {family_id}: need one male and one female parent, got {observed}',
+            )
+            continue
+
+        mother_sg = sex_to_sg['FEMALE']
+        father_sg = sex_to_sg['MALE']
+
+        if not mother_sg.gvcf or not father_sg.gvcf:
+            missing = [m.id for m in (mother_sg, father_sg) if not m.gvcf]
+            loguru.logger.warning(
+                f'Skipping family {family_id}: no gVCF registered for {missing}',
+            )
+            continue
+
+        families.append(
+            SyntheticProbandFamily(
+                family_id=family_id,
+                mother_sg=mother_sg,
+                father_sg=father_sg,
+                synthetic_sample_name=f'{family_id}_synthetic_proband',
+            ),
+        )
+
+    loguru.logger.info(
+        f'Found {len(families)} duo families eligible for synthetic proband generation',
+    )
+    return families
 
 
 def manually_find_ids_from_vds(vds_path: str) -> set[str]:

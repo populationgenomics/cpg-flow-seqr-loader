@@ -20,6 +20,10 @@ from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_j
 from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
+from cpg_seqr_loader.jobs.GenerateSyntheticProbandGvcfs import (
+    create_analysis_registration_jobs,
+    create_synthesis_jobs,
+)
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
 from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
 from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
@@ -34,27 +38,50 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
     """
     Generate synthetic proband gVCFs for each duo family in the multicohort, so the combiner can
     build a trio-shaped VDS for cohorts that only contain unaffected parental duos.
+
+    Metamist analysis registration for each output is queued separately (see Task 4) rather than
+    via the @stage.stage(analysis_type=...) decorator, because the stage produces N outputs (one
+    per family) and the decorator only supports one analysis registration per stage run.
     """
 
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
-        # Create the synthetic proband gVCF output paths dynamically
-        # Possible but has challenges
-        # To register analyses, submit registration jobs manually, don't rely on the stage decorator
-
-        # gvcfs = utils.get_families_for_synthetic_probands(multicohort)
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        families = utils.get_families_for_synthetic_probands(multicohort)
         return {
-            #'proband_gvcf': self.tmp_prefix / '{family_id}_synthetic_proband.g.vcf.gz',
+            family.family_id: self.prefix / f'{family.family_id}_synthetic_proband.g.vcf.gz'
+            for family in families
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        output = self.expected_outputs(multicohort)
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        outputs = self.expected_outputs(multicohort)
+        job_attrs = self.get_job_attrs(multicohort)
 
-        job = utils.generate_synthetic_proband_inputs(  # create this job which invokes the script to generate synthetic proband gVCFs
-            multicohort=multicohort,
-            output_path=output,
-            job_attrs=self.get_job_attrs(multicohort),
+        synthesis_jobs = create_synthesis_jobs(
+            families=families,
+            output_paths=outputs,
+            job_attrs=job_attrs,
         )
-        return self.make_outputs(multicohort, data=output, jobs=job)
+
+        # Group families by their metamist project (a MultiCohort may span datasets in principle;
+        # each family's Analysis is registered against the dataset its parents live in). In the
+        # ravenscroft-rpl rollout this list contains one project only.
+        registration_jobs: list = []
+        for family in families:
+            registration_jobs.extend(
+                create_analysis_registration_jobs(
+                    families=[family],
+                    output_paths=outputs,
+                    synthesis_jobs=synthesis_jobs,
+                    project=family.mother_sg.dataset.name,
+                    job_attrs=job_attrs,
+                ),
+            )
+
+        return self.make_outputs(
+            multicohort,
+            data=outputs,
+            jobs=list(synthesis_jobs.values()) + registration_jobs,
+        )
 
 @stage.stage
 class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
