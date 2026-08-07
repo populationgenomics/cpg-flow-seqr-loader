@@ -20,6 +20,10 @@ from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_j
 from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
+from cpg_seqr_loader.jobs.GenerateSyntheticProbandCombinerInputs import (
+    create_manifest_job,
+    create_pedigree_job,
+)
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandGvcfs import (
     create_analysis_registration_jobs,
     create_synthesis_jobs,
@@ -83,27 +87,45 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
             jobs=list(synthesis_jobs.values()) + registration_jobs,
         )
 
-@stage.stage
+@stage.stage(required_stages=[GenerateSyntheticProbandGvcfs])
 class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
     """
-    Build the combiner inputs (gVCF manifest + pedigree) for the synthetic proband workflow.
+    Build the combiner inputs for the separate synthetic-trio combiner run (currently the
+    ravenscroft-rpl invocation): a pedigree with the synthetic probands inserted, and a gVCF
+    manifest listing every real parental gVCF in the multicohort plus every synthetic gVCF from
+    Stage 1. Both files land at self.prefix so seqr sync can reuse them across loads.
     """
 
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
         return {
-            'gvcfs_list': self.tmp_prefix / 'all_gvcf_paths_including_synthetic_gvcfs.txt',
-            'pedigree': self.tmp_prefix / 'synthetic_pedigree.ped',
+            'gvcfs_list': self.prefix / 'all_gvcf_paths_including_synthetic_gvcfs.txt',
+            'pedigree': self.prefix / 'synthetic_pedigree.ped',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
-        output = self.expected_outputs(multicohort)
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        outputs = self.expected_outputs(multicohort)
+        job_attrs = self.get_job_attrs(multicohort)
 
-        job = utils.generate_synthetic_proband_inputs(  # create this job which invokes the script to generate synthetic proband gVCFs
-            multicohort=multicohort,
-            output_path=output,
-            job_attrs=self.get_job_attrs(multicohort),
+        synthetic_gvcf_paths = inputs.as_dict(
+            target=multicohort,
+            stage=GenerateSyntheticProbandGvcfs,
         )
-        return self.make_outputs(multicohort, data=output, jobs=job)
+
+        pedigree_job = create_pedigree_job(
+            families=families,
+            output_ped=outputs['pedigree'],
+            job_attrs=job_attrs,
+        )
+        manifest_job = create_manifest_job(
+            families=families,
+            synthetic_gvcf_paths=synthetic_gvcf_paths,
+            multicohort=multicohort,
+            output_manifest=outputs['gvcfs_list'],
+            job_attrs=job_attrs,
+        )
+
+        return self.make_outputs(multicohort, data=outputs, jobs=[pedigree_job, manifest_job])
 
 
 @stage.stage(analysis_type='combiner', analysis_keys=['vds'])

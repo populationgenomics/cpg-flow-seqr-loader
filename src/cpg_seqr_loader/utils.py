@@ -385,6 +385,49 @@ def get_families_for_synthetic_probands(
     return families
 
 
+def build_gvcf_manifest_content(paths: list[str]) -> str:
+    """Newline-separated gVCF paths, in the format Hail's combiner expects via --gvcf_add_file.
+
+    Trailing newline is intentional - the combiner tolerates it and it makes downstream line-count
+    / diff tooling less surprising.
+    """
+    return '\n'.join(paths) + '\n'
+
+
+def build_synthetic_pedigree_content(families: list[SyntheticProbandFamily]) -> str:
+    """6-column TSV PED content, three rows per duo family (mother, father, synthetic proband).
+
+    PED columns: family_id, individual_id, father_id, mother_id, sex (1=male, 2=female), phenotype
+    (1=unaffected, 2=affected).
+
+    Individual IDs are the strings that appear as the sample name in each gVCF header - SG IDs
+    for the parents (matching what CPG-produced gVCFs use as SM) and `<family_id>_synthetic_proband`
+    for the child. These MUST match the sample IDs in the loaded seqr MatrixTable or seqr will
+    silently disable trio inheritance filtering for the family.
+
+    Non-qualifying families are absent from this PED. Their real parental gVCFs still appear in
+    the combiner manifest (so they show up in seqr as individuals), but without a trio row here
+    they get no inheritance filtering, which is the correct behaviour for data-quality failures.
+    """
+    lines: list[str] = []
+    for family in families:
+        # Parents: no parents of their own recorded; unaffected.
+        lines.append(f'{family.family_id}\t{family.mother_sg.id}\t0\t0\t2\t1')
+        lines.append(f'{family.family_id}\t{family.father_sg.id}\t0\t0\t1\t1')
+        # Synthetic proband: male, affected, references its parents.
+        lines.append(
+            f'{family.family_id}\t{family.synthetic_sample_name}'
+            f'\t{family.father_sg.id}\t{family.mother_sg.id}\t1\t2',
+        )
+    return '\n'.join(lines) + '\n'
+
+
+def write_gvcf_manifest(paths: list[str], out_path: str) -> None:
+    """Driver-side writer: dump one gVCF path per line to `out_path` (accepts local or gs:// paths)."""
+    with to_path(out_path).open('w') as write_handle:
+        write_handle.write(build_gvcf_manifest_content(paths))
+
+
 def manually_find_ids_from_vds(vds_path: str) -> set[str]:
     """
     during development and the transition to input_cohorts over input_datasets, there are some instances
