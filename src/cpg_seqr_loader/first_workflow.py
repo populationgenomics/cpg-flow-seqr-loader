@@ -8,7 +8,7 @@ import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import DeleteCombinerTemp, SubmitPostCombinerWorkflow
+from cpg_seqr_loader.stages import CreateDenseMtFromVdsWithHail, SubmitPostCombinerWorkflow
 
 
 def cli_main():
@@ -18,7 +18,7 @@ def cli_main():
 
     workflow.run_workflow(
         name='seqr_loader',
-        stages=[DeleteCombinerTemp, SubmitPostCombinerWorkflow],
+        stages=[CreateDenseMtFromVdsWithHail, SubmitPostCombinerWorkflow],
         dry_run=args.dry_run,
     )
 
