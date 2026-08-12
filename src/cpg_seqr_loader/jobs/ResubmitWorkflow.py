@@ -5,10 +5,10 @@ import toml
 from cpg_utils import config, hail_batch, to_path
 
 if TYPE_CHECKING:
-    from hailtop.batch.job import PythonJob
+    from hailtop.batch.job import BashJob
 
 
-def resubmit_full_workflow(output_path: str) -> 'PythonJob':
+def resubmit_full_workflow(output_path: str) -> 'BashJob':
     """Chain the second phase of the workflow using analysis-runner."""
     batch_instance = hail_batch.get_batch()
     j = batch_instance.new_bash_job('Submit second Seqr-Loader workflow phase.')
