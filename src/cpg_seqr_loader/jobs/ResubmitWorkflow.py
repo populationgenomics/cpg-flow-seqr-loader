@@ -42,6 +42,7 @@ def resubmit_full_workflow(output_path: str) -> 'PythonJob':
     """Chain the second phase of the workflow using analysis-runner."""
     batch_instance = hail_batch.get_batch()
     npj = batch_instance.new_python_job('Submit second Seqr-Loader workflow phase.')
+    hail_batch.authenticate_cloud_credentials_in_job(npj)
     npj.image(config.config_retrieve(['workflow', 'driver_image']))
     npj.call(submission_python_job, output_path)
     return npj
