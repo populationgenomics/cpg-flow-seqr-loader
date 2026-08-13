@@ -320,6 +320,8 @@ def get_families_for_synthetic_probands(
       - one has pedigree sex MALE, one has pedigree sex FEMALE
       - neither member's pedigree references a parent (i.e. both members are themselves parents;
         no real proband is present in the family)
+      - neither member is marked phenotype=2 (affected), which would indicate a real proband is
+        present even when its parents-set fields haven't been filled in
       - both members have a gVCF registered in metamist
 
     Families that don't match are logged and skipped, not raised, so a mixed multicohort still
@@ -347,6 +349,20 @@ def get_families_for_synthetic_probands(
             loguru.logger.warning(
                 f'Skipping family {family_id}: at least one member has parents set in the pedigree '
                 '(suggests a real proband is present, not a parental duo)',
+            )
+            continue
+
+        # Any affected member (phenotype=2) means a real proband already exists in the family,
+        # even when its parents-set pedigree fields haven't been filled in. Skip to avoid
+        # synthesizing a proband on top of a real one.
+        # NOTE: phenotype 0 (unknown / not set) is deliberately allowed - some legitimate parental
+        # duos have unset phenotype metadata. Two-sibling families whose members are both
+        # phenotype=0 would slip through this check; the mitigation is to ensure metamist
+        # phenotype data is correct before running (mark real probands as phenotype=2 upstream).
+        if any(str(m.pedigree.phenotype) == '2' for m in members):
+            loguru.logger.warning(
+                f'Skipping family {family_id}: at least one member is marked affected (phenotype=2), '
+                'indicating a real proband is already present',
             )
             continue
 
