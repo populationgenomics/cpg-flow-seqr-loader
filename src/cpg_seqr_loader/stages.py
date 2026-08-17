@@ -3,6 +3,8 @@ All Stages relating to the seqr_loader pipeline, reimplemented from scratch to
 use the gVCF combiner instead of joint-calling.
 """
 
+import hashlib
+
 import loguru
 from cpg_flow import stage, targets, workflow
 from cpg_flow.stage import StageOutput
@@ -21,6 +23,7 @@ from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandCombinerInputs import (
+    create_family_set_marker_job,
     create_manifest_job,
     create_pedigree_job,
 )
@@ -115,9 +118,26 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        """PED + manifest at fixed paths, plus a hash-named marker.
+
+        The PED and manifest paths never change - downstream tooling (seqr sync, combiner
+        config) expects to find them at stable locations. But their *content* is a function of
+        the multicohort's SG set + qualifying family set. If we relied on the fixed paths alone
+        for REUSE, Stage 2 would silently ship stale content whenever the family set changed.
+
+        The `family_set_marker` key encodes a hash of both sets into its filename, so any change
+        to who's in the multicohort or which families qualify invalidates it and forces Stage 2
+        to re-run. The tiny marker job below writes it only after the PED and manifest jobs
+        succeed, so the marker's existence really does mean "the fixed-path outputs are fresh".
+        """
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        sg_ids = sorted(sg.id for sg in multicohort.get_sequencing_groups())
+        family_ids = sorted(family.family_id for family in families)
+        family_set_hash = hashlib.sha256(('\n'.join([*sg_ids, '--', *family_ids])).encode()).hexdigest()[:12]
         return {
             'gvcfs_list': self.prefix / 'all_gvcf_paths_including_synthetic_gvcfs.txt',
             'pedigree': self.prefix / 'synthetic_pedigree.ped',
+            'family_set_marker': self.prefix / f'families-{family_set_hash}.marker',
         }
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
@@ -148,8 +168,13 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
             output_manifest=outputs['gvcfs_list'],
             job_attrs=job_attrs,
         )
+        marker_job = create_family_set_marker_job(
+            marker_path=outputs['family_set_marker'],
+            upstream_jobs=[pedigree_job, manifest_job],
+            job_attrs=job_attrs,
+        )
 
-        return self.make_outputs(multicohort, data=outputs, jobs=[pedigree_job, manifest_job])
+        return self.make_outputs(multicohort, data=outputs, jobs=[pedigree_job, manifest_job, marker_job])
 
 
 @stage.stage(analysis_type='combiner', analysis_keys=['vds'])

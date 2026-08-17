@@ -66,6 +66,29 @@ def create_pedigree_job(
     )
 
 
+def create_family_set_marker_job(
+    marker_path: Path,
+    upstream_jobs: list['BashJob'],
+    job_attrs: dict,
+) -> 'BashJob':
+    """Touch an empty file at `marker_path` once the PED and manifest jobs have both succeeded.
+
+    The marker's *filename* encodes a hash of the family set (see stages.py) - when the family
+    set changes, the hash changes, this marker path doesn't exist, and cpg_flow's REUSE check
+    forces Stage 2 to re-run. Without this, Stage 2's fixed-name outputs (PED, manifest) would
+    silently ship stale content whenever qualifying families come and go.
+
+    Depends on the pedigree + manifest jobs so the marker only exists once their outputs land.
+    """
+    job = hail_batch.get_batch().new_bash_job('WriteFamilySetMarker', attributes=job_attrs | {'tool': 'python'})
+    job.image(config.config_retrieve(['workflow', 'driver_image']))
+    for upstream in upstream_jobs:
+        job.depends_on(upstream)
+    job.command(f'touch {job.output}')
+    hail_batch.get_batch().write_output(job.output, str(marker_path))
+    return job
+
+
 def create_manifest_job(
     families: list[SyntheticProbandFamily],
     synthetic_gvcf_paths: dict[str, Path],
