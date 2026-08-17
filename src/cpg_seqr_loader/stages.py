@@ -49,32 +49,46 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        """Two paths per qualifying family: the gVCF, and a sentinel written by the registration
+        script on success. cpg_flow only skips this stage as [REUSE] when *all* keys point at
+        existing files, so both artifacts must be present. Tracking the sentinel is what stops
+        the framework from silently skipping metamist registration when the gVCF is already on
+        disk from a previous run (see the debugging trail in git history).
+        """
         families = utils.get_families_for_synthetic_probands(multicohort)
-        return {
-            family.family_id: self.prefix / f'{family.family_id}_synthetic_proband.g.vcf.gz'
-            for family in families
-        }
+        outputs: dict[str, Path] = {}
+        for family in families:
+            outputs[f'{family.family_id}_gvcf'] = (
+                self.prefix / f'{family.family_id}_synthetic_proband.g.vcf.gz'
+            )
+            outputs[f'{family.family_id}_registered'] = (
+                self.prefix / f'{family.family_id}_registered.txt'
+            )
+        return outputs
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         families = utils.get_families_for_synthetic_probands(multicohort)
         outputs = self.expected_outputs(multicohort)
         job_attrs = self.get_job_attrs(multicohort)
 
+        gvcf_paths = {f.family_id: outputs[f'{f.family_id}_gvcf'] for f in families}
+        marker_paths = {f.family_id: outputs[f'{f.family_id}_registered'] for f in families}
+
         synthesis_jobs = create_synthesis_jobs(
             families=families,
-            output_paths=outputs,
+            output_paths=gvcf_paths,
             job_attrs=job_attrs,
         )
 
-        # Group families by their metamist project (a MultiCohort may span datasets in principle;
-        # each family's Analysis is registered against the dataset its parents live in). In the
-        # ravenscroft-rpl rollout this list contains one project only.
+        # Register per family (each Analysis lives in its parents' metamist project; cpg-flow's
+        # get_metamist().create_analysis handles the access-level suffix internally).
         registration_jobs: list = []
         for family in families:
             registration_jobs.extend(
                 create_analysis_registration_jobs(
                     families=[family],
-                    output_paths=outputs,
+                    gvcf_paths=gvcf_paths,
+                    marker_paths=marker_paths,
                     synthesis_jobs=synthesis_jobs,
                     project=family.mother_sg.dataset.name,
                     job_attrs=job_attrs,
@@ -107,10 +121,16 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
         outputs = self.expected_outputs(multicohort)
         job_attrs = self.get_job_attrs(multicohort)
 
-        synthetic_gvcf_paths = inputs.as_dict(
+        # Stage 1's outputs contain both `_gvcf` and `_registered` keys per family; we only want
+        # the gVCF paths here (indexed by bare family_id, as the manifest builder expects).
+        stage_1_outputs = inputs.as_dict(
             target=multicohort,
             stage=GenerateSyntheticProbandGvcfs,
         )
+        synthetic_gvcf_paths = {
+            family.family_id: stage_1_outputs[f'{family.family_id}_gvcf']
+            for family in families
+        }
 
         pedigree_job = create_pedigree_job(
             families=families,

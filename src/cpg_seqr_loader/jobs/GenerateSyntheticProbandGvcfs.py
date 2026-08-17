@@ -18,7 +18,7 @@ need Batch's read_input_group here.
 
 from typing import TYPE_CHECKING
 
-from cpg_utils import Path, config, hail_batch
+from cpg_utils import Path, config, hail_batch, to_path
 
 from cpg_seqr_loader.utils import SyntheticProbandFamily
 
@@ -45,6 +45,12 @@ def create_synthesis_jobs(
     jobs: dict[str, 'BashJob'] = {}
     for family in families:
         output = output_paths[family.family_id]
+
+        # Per-family skip: cpg_flow's stage-level REUSE check is bypassed here (e.g. when the
+        # registration marker for a sibling family is missing and forces the whole stage to
+        # QUEUE). Avoid re-running expensive synthesis when this family's gVCF already exists.
+        if to_path(output).exists():
+            continue
 
         job = hail_batch.get_batch().new_bash_job(
             f'SynthesizeProband_{family.family_id}',
@@ -74,7 +80,8 @@ def create_synthesis_jobs(
 
 def create_analysis_registration_jobs(
     families: list[SyntheticProbandFamily],
-    output_paths: dict[str, Path],
+    gvcf_paths: dict[str, Path],
+    marker_paths: dict[str, Path],
     synthesis_jobs: dict[str, 'BashJob'],
     project: str,
     job_attrs: dict,
@@ -87,16 +94,25 @@ def create_analysis_registration_jobs(
     case the registration job simply has no upstream dependency and runs immediately (the
     script itself is idempotent).
 
+    Per-family skip: if this family's registration marker already exists, we don't queue a
+    registration job for it. Same rationale as the skip in create_synthesis_jobs.
+
     Args:
         families: same list passed to create_synthesis_jobs.
-        output_paths: same dict passed to create_synthesis_jobs.
+        gvcf_paths: per-family output gVCF paths.
+        marker_paths: per-family registration sentinel paths. The script writes to this on
+            successful registration; its presence is what cpg_flow uses to decide REUSE.
         synthesis_jobs: return value of create_synthesis_jobs (family_id -> BashJob).
         project: metamist project name (the dataset the parental SGs live in).
         job_attrs: base job attributes from the calling stage.
     """
     jobs: list['BashJob'] = []
     for family in families:
-        output = output_paths[family.family_id]
+        marker = marker_paths[family.family_id]
+        if to_path(marker).exists():
+            continue
+
+        gvcf = gvcf_paths[family.family_id]
 
         job = hail_batch.get_batch().new_bash_job(
             f'RegisterSyntheticProband_{family.family_id}',
@@ -112,13 +128,14 @@ def create_analysis_registration_jobs(
             f"""
             python -m cpg_seqr_loader.scripts.register_synthetic_gvcf_analysis \\
                 --project {project} \\
-                --gvcf_path {output!s} \\
+                --gvcf_path {gvcf!s} \\
                 --sample_name {family.synthetic_sample_name} \\
                 --family_id {family.family_id} \\
                 --mother_sg_id {family.mother_sg.id} \\
                 --father_sg_id {family.father_sg.id} \\
                 --mother_source_gvcf {family.mother_sg.gvcf!s} \\
-                --father_source_gvcf {family.father_sg.gvcf!s}
+                --father_source_gvcf {family.father_sg.gvcf!s} \\
+                --marker_path {marker!s}
             """,
         )
 

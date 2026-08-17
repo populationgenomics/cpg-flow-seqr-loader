@@ -21,6 +21,7 @@ re-produced.
 from argparse import ArgumentParser
 
 from cpg_flow.metamist import get_metamist
+from cpg_utils import to_path
 from loguru import logger
 from metamist import models
 from metamist.apis import AnalysisApi
@@ -126,6 +127,16 @@ def cli_main():
     parser.add_argument('--father_sg_id', required=True, help='Father sequencing_group id')
     parser.add_argument('--mother_source_gvcf', required=True, help='Path to the mother gVCF used as input')
     parser.add_argument('--father_source_gvcf', required=True, help='Path to the father gVCF used as input')
+    parser.add_argument(
+        '--marker_path',
+        required=True,
+        help=(
+            'Path (typically gs://) to a per-family sentinel file that is written when this '
+            'invocation completes successfully. Its presence is what cpg_flow uses to decide '
+            'whether Stage 1 can be reused on subsequent runs - without it, the stage-wide REUSE '
+            'check would skip queue_jobs (and thus registration) whenever the gVCF already exists.'
+        ),
+    )
     args = parser.parse_args()
 
     existing = find_existing_registration(
@@ -145,34 +156,38 @@ def cli_main():
             mother_source_gvcf=args.mother_source_gvcf,
             father_source_gvcf=args.father_source_gvcf,
         )
-        return
+    else:
+        existing_meta = existing.get('meta') or {}
+        if (
+            existing_meta.get('source_mother_gvcf') == args.mother_source_gvcf
+            and existing_meta.get('source_father_gvcf') == args.father_source_gvcf
+        ):
+            logger.info(
+                f'Analysis id={existing["id"]} for family {args.family_id} is already registered '
+                'with matching source gVCFs; nothing to do.',
+            )
+        else:
+            logger.info(
+                f'Analysis id={existing["id"]} for family {args.family_id} has stale source gVCF '
+                'paths; deactivating and re-registering.',
+            )
+            deactivate_analysis(existing['id'])
+            create_registration(
+                project=args.project,
+                gvcf_path=args.gvcf_path,
+                sample_name=args.sample_name,
+                family_id=args.family_id,
+                mother_sg_id=args.mother_sg_id,
+                father_sg_id=args.father_sg_id,
+                mother_source_gvcf=args.mother_source_gvcf,
+                father_source_gvcf=args.father_source_gvcf,
+            )
 
-    existing_meta = existing.get('meta') or {}
-    if (
-        existing_meta.get('source_mother_gvcf') == args.mother_source_gvcf
-        and existing_meta.get('source_father_gvcf') == args.father_source_gvcf
-    ):
-        logger.info(
-            f'Analysis id={existing["id"]} for family {args.family_id} is already registered with '
-            f'matching source gVCFs; nothing to do.',
-        )
-        return
-
-    logger.info(
-        f'Analysis id={existing["id"]} for family {args.family_id} has stale source gVCF paths; '
-        f'deactivating and re-registering.',
-    )
-    deactivate_analysis(existing['id'])
-    create_registration(
-        project=args.project,
-        gvcf_path=args.gvcf_path,
-        sample_name=args.sample_name,
-        family_id=args.family_id,
-        mother_sg_id=args.mother_sg_id,
-        father_sg_id=args.father_sg_id,
-        mother_source_gvcf=args.mother_source_gvcf,
-        father_source_gvcf=args.father_source_gvcf,
-    )
+    # Sentinel: write only after registration succeeds (any exception above skips this).
+    # The empty file's existence is what unblocks cpg_flow's stage-level REUSE on future runs.
+    with to_path(args.marker_path).open('w') as marker:
+        marker.write('')
+    logger.info(f'Wrote registration marker to {args.marker_path}')
 
 
 if __name__ == '__main__':
