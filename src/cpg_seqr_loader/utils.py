@@ -5,10 +5,12 @@ suggested location for any utility methods or constants used across multiple sta
 import datetime
 import functools
 import hashlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import loguru
 from cpg_flow import targets
+from cpg_flow.metamist import get_metamist
 from cpg_utils import Path, config, hail_batch, to_path
 from metamist.graphql import gql, query
 
@@ -114,6 +116,19 @@ SPECIFIC_VDS_QUERY = gql(
             output
             sequencingGroups {
                 id
+            }
+        }
+    }
+""",
+)
+
+FAMILY_EXTERNAL_IDS_QUERY = gql(
+    """
+    query FamilyExternalIds($project: String!) {
+        project(name: $project) {
+            families {
+                id
+                externalId
             }
         }
     }
@@ -282,6 +297,216 @@ def get_family_sequencing_groups(dataset: targets.Dataset) -> dict | None:
     name_suffix = f'{len(family_sg_ids)}_sgs-{len(only_family_ids)}_families-{h}'
 
     return {'family_sg_ids': family_sg_ids, 'name_suffix': name_suffix}
+
+
+# ---------------------------------------------------------------------------
+# Synthetic proband workflow helpers (see synthetic_proband_gvcf_workflow.py)
+# ---------------------------------------------------------------------------
+
+SYNTHETIC_GVCF_ANALYSIS_TYPE = 'synthetic_gvcf'
+
+
+@dataclass(frozen=True)
+class SyntheticProbandFamily:
+    """One duo family in the multicohort, plus the invented name for its synthetic proband.
+
+    Both metamist family IDs are kept:
+      - family_id is the internal metamist ID (e.g. "18958") - stable, used for dict keys.
+      - external_family_id is the collaborator-facing ID (e.g. "F000045871") - used in file
+        names, sample names, PED rows, and Batch job labels so the pre-workflow's artefacts read
+        as the identifiers our collaborators already know.
+
+    The synthetic_sample_name string is the single source of truth for the synthetic proband's
+    identity across the pre-workflow: it is embedded in the gVCF header (as the sample column
+    name), written into the PED file as the proband row's individual ID, and later appears in the
+    seqr MatrixTable as a sample ID. The three MUST match or seqr's trio inheritance filters will
+    silently fail (pedigree references a proband that isn't present in the callset).
+    """
+
+    family_id: str
+    external_family_id: str
+    mother_sg: targets.SequencingGroup
+    father_sg: targets.SequencingGroup
+    synthetic_sample_name: str
+
+
+@functools.cache
+def get_family_external_id_map(dataset_name: str) -> dict[str, str]:
+    """Return `{internal_family_id_str: external_family_id}` for every family in `dataset_name`.
+
+    cpg-flow's pedigree query passes `replaceWithFamilyExternalIds: false`, so anything the
+    framework surfaces (e.g. sg.pedigree.fam_id) is the internal metamist ID. This helper does
+    the extra lookup so callers can convert to the external ID collaborators know.
+
+    Uses metamist's GraphQL API rather than the auto-generated FamilyApi REST client. The REST
+    client silently drops external IDs recorded under an empty-string source key (which is what
+    create_test_subset.py produces), while the GraphQL `externalId` scalar returns them cleanly.
+
+    Families with no external ID at all are omitted from the map (upstream callers should
+    log-and-skip). Access-level suffixing (`-test`) is applied via cpg-flow's
+    `get_metamist_proj` so the same call works at test and standard access levels.
+    """
+    metamist_proj = get_metamist().get_metamist_proj(dataset_name)
+    result = query(FAMILY_EXTERNAL_IDS_QUERY, variables={'project': metamist_proj})
+    return {
+        str(family['id']): family['externalId'] for family in result['project']['families'] if family.get('externalId')
+    }
+
+
+@functools.cache
+def get_families_for_synthetic_probands(
+    multicohort: targets.MultiCohort,
+) -> list[SyntheticProbandFamily]:
+    """Enumerate the duo-only families in the multicohort that qualify for synthetic-proband generation.
+
+    A family qualifies iff all of:
+      - exactly two sequencing groups share its family_id
+      - one has pedigree sex MALE, one has pedigree sex FEMALE
+      - neither member's pedigree references a parent (i.e. both members are themselves parents;
+        no real proband is present in the family)
+      - both members have a gVCF registered in metamist
+      - the family has at least one external ID recorded in metamist (needed for the
+        collaborator-facing sample name that ends up in gVCF headers, PED rows, and seqr)
+
+    Families that don't match are logged and skipped, not raised, so a mixed multicohort still
+    produces synthetic probands for the families that do qualify.
+    """
+    # Union family-external-id maps across every dataset represented in the multicohort. Usually
+    # there is only one dataset (e.g. ravenscroft-rpl) but the code handles a mixed multicohort.
+    external_id_by_internal: dict[str, str] = {}
+    for dataset in multicohort.get_datasets():
+        external_id_by_internal.update(get_family_external_id_map(dataset.name))
+
+    grouped: dict[str, list[targets.SequencingGroup]] = {}
+    for sg in multicohort.get_sequencing_groups():
+        family_id = sg.pedigree.fam_id
+        if not family_id:
+            loguru.logger.warning(f'Skipping SG {sg.id}: no family_id set in pedigree')
+            continue
+        grouped.setdefault(family_id, []).append(sg)
+
+    families: list[SyntheticProbandFamily] = []
+    for family_id, members in grouped.items():
+        if len(members) != 2:
+            loguru.logger.warning(
+                f'Skipping family {family_id}: expected 2 members, got {len(members)}',
+            )
+            continue
+
+        # Any member with dad or mom set is a child within this family (indicates a real proband),
+        # so this isn't a parental duo we should synthesize for.
+        if any(m.pedigree.dad or m.pedigree.mom for m in members):
+            loguru.logger.warning(
+                f'Skipping family {family_id}: at least one member has parents set in the pedigree '
+                '(suggests a real proband is present, not a parental duo)',
+            )
+            continue
+
+        # Compare sex by enum name (Sex.__str__ returns .name) to avoid importing the enum, which
+        # is defined in cpg_workflows.targets and not necessarily re-exported by cpg_flow.
+        sex_to_sg = {m.pedigree.sex.name: m for m in members}
+        if set(sex_to_sg) != {'MALE', 'FEMALE'}:
+            observed = [m.pedigree.sex.name for m in members]
+            loguru.logger.warning(
+                f'Skipping family {family_id}: need one male and one female parent, got {observed}',
+            )
+            continue
+
+        mother_sg = sex_to_sg['FEMALE']
+        father_sg = sex_to_sg['MALE']
+
+        if not mother_sg.gvcf or not father_sg.gvcf:
+            missing = [m.id for m in (mother_sg, father_sg) if not m.gvcf]
+            loguru.logger.warning(
+                f'Skipping family {family_id}: no gVCF registered for {missing}',
+            )
+            continue
+
+        external_family_id = external_id_by_internal.get(family_id)
+        if not external_family_id:
+            loguru.logger.warning(
+                f'Skipping family {family_id}: no external family ID recorded in metamist',
+            )
+            continue
+
+        families.append(
+            SyntheticProbandFamily(
+                family_id=family_id,
+                external_family_id=external_family_id,
+                mother_sg=mother_sg,
+                father_sg=father_sg,
+                synthetic_sample_name=f'{external_family_id}_synthetic_proband',
+            ),
+        )
+
+    loguru.logger.info(
+        f'Found {len(families)} duo families eligible for synthetic proband generation',
+    )
+    return families
+
+
+def build_gvcf_manifest_content(paths: list[str]) -> str:
+    """Newline-separated gVCF paths, in the format Hail's combiner expects via --gvcf_add_file.
+
+    Trailing newline is intentional - the combiner tolerates it and it makes downstream line-count
+    / diff tooling less surprising.
+    """
+    return '\n'.join(paths) + '\n'
+
+
+_PED_FIELDS = ('Family.ID', 'Individual.ID', 'Father.ID', 'Mother.ID', 'Sex', 'Phenotype')
+
+
+def build_synthetic_pedigree_content(
+    multicohort: targets.MultiCohort,
+    families: list[SyntheticProbandFamily],
+) -> str:
+    """6-column TSV PED content, no header.
+
+    One row per real sequencing group in the multicohort (via cpg-flow's
+    sg.pedigree.get_ped_dict, mirroring what multicohort.write_ped_file would produce), plus one
+    row per qualifying duo family's synthetic proband (male, affected, referencing its parents).
+
+    Family.ID column is remapped from the internal metamist ID (what cpg-flow surfaces) to the
+    external family ID our collaborators know. All rows for the same family MUST share the same
+    Family.ID string or seqr won't group them into a trio - the synthetic proband row uses the
+    external ID, so the real parent rows must too.
+
+    Row-inclusion is deliberately broader than the qualifying-family set so seqr sees every real
+    SG whose gVCF appears in the combiner manifest, whether or not their family qualified for
+    synthetic proband synthesis. Non-qualifying real families still get whatever trio linkage
+    their metamist pedigree happens to encode.
+
+    The synthetic proband's individual ID (`<external_family_id>_synthetic_proband`) MUST match
+    the sample name embedded in the gVCF header and the sample ID that appears in the loaded seqr
+    MatrixTable, or seqr will silently disable trio inheritance filtering for the family.
+    """
+    external_id_by_internal: dict[str, str] = {}
+    for dataset in multicohort.get_datasets():
+        external_id_by_internal.update(get_family_external_id_map(dataset.name))
+
+    lines: list[str] = []
+    for sg in multicohort.get_sequencing_groups():
+        ped_dict = sg.pedigree.get_ped_dict()
+        # Remap Family.ID from internal → external where we have a mapping; SGs whose family
+        # has no external ID fall through with the internal value (they won't be grouped with
+        # any synthetic-proband row, which is fine — they're unqualifying families anyway).
+        internal_fam = str(ped_dict['Family.ID'])
+        family_id_for_ped = external_id_by_internal.get(internal_fam, internal_fam)
+        row_values = [family_id_for_ped] + [str(ped_dict[field]) for field in _PED_FIELDS[1:]]
+        lines.append('\t'.join(row_values))
+    for family in families:
+        lines.append(
+            f'{family.external_family_id}\t{family.synthetic_sample_name}'
+            f'\t{family.father_sg.id}\t{family.mother_sg.id}\t1\t2',
+        )
+    return '\n'.join(lines) + '\n'
+
+
+def write_gvcf_manifest(paths: list[str], out_path: str) -> None:
+    """Driver-side writer: dump one gVCF path per line to `out_path` (accepts local or gs:// paths)."""
+    with to_path(out_path).open('w') as write_handle:
+        write_handle.write(build_gvcf_manifest_content(paths))
 
 
 def manually_find_ids_from_vds(vds_path: str) -> set[str]:

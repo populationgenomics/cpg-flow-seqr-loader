@@ -3,6 +3,8 @@ All Stages relating to the seqr_loader pipeline, reimplemented from scratch to
 use the gVCF combiner instead of joint-calling.
 """
 
+import hashlib
+
 import loguru
 from cpg_flow import stage, targets, workflow
 from cpg_flow.stage import StageOutput
@@ -20,6 +22,15 @@ from cpg_seqr_loader.jobs.CreateDenseMtFromVdsWithHail import generate_densify_j
 from cpg_seqr_loader.jobs.DeleteCombinerTemp import delete_temp_data_recursive
 from cpg_seqr_loader.jobs.ExportMtAsEsIndex import create_es_export_job
 from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
+from cpg_seqr_loader.jobs.GenerateSyntheticProbandCombinerInputs import (
+    create_family_set_marker_job,
+    create_manifest_job,
+    create_pedigree_job,
+)
+from cpg_seqr_loader.jobs.GenerateSyntheticProbandGvcfs import (
+    create_analysis_registration_jobs,
+    create_synthesis_jobs,
+)
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
 from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
 from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
@@ -28,6 +39,142 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpModel import train_vqsr_snp_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 
 SHARD_MANIFEST = 'shard-manifest.txt'
+
+
+@stage.stage
+class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
+    """
+    Generate synthetic proband gVCFs for each duo family in the multicohort, so the combiner can
+    build a trio-shaped VDS for cohorts that only contain unaffected parental duos.
+
+    Metamist analysis registration for each output is queued separately (see Task 4) rather than
+    via the @stage.stage(analysis_type=...) decorator, because the stage produces N outputs (one
+    per family) and the decorator only supports one analysis registration per stage run.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        """Two paths per qualifying family: the gVCF, and a sentinel written by the registration
+        script on success. cpg_flow only skips this stage as [REUSE] when *all* keys point at
+        existing files, so both artifacts must be present. Tracking the sentinel is what stops
+        the framework from silently skipping metamist registration when the gVCF is already on
+        disk from a previous run (see the debugging trail in git history).
+        """
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        outputs: dict[str, Path] = {}
+        for family in families:
+            # Filenames use the external family ID so collaborators recognise the artefacts.
+            # Dict keys use the same, so downstream lookups stay symmetrical.
+            outputs[f'{family.external_family_id}_gvcf'] = (
+                self.prefix / f'{family.external_family_id}_synthetic_proband.g.vcf.gz'
+            )
+            outputs[f'{family.external_family_id}_registered'] = (
+                self.prefix / f'{family.external_family_id}_registered.txt'
+            )
+        return outputs
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        outputs = self.expected_outputs(multicohort)
+        job_attrs = self.get_job_attrs(multicohort)
+
+        gvcf_paths = {f.family_id: outputs[f'{f.external_family_id}_gvcf'] for f in families}
+        marker_paths = {f.family_id: outputs[f'{f.external_family_id}_registered'] for f in families}
+
+        synthesis_jobs = create_synthesis_jobs(
+            families=families,
+            output_paths=gvcf_paths,
+            job_attrs=job_attrs,
+        )
+
+        # Register per family (each Analysis lives in its parents' metamist project; cpg-flow's
+        # get_metamist().create_analysis handles the access-level suffix internally).
+        registration_jobs: list = []
+        for family in families:
+            registration_jobs.extend(
+                create_analysis_registration_jobs(
+                    families=[family],
+                    gvcf_paths=gvcf_paths,
+                    marker_paths=marker_paths,
+                    synthesis_jobs=synthesis_jobs,
+                    project=family.mother_sg.dataset.name,
+                    job_attrs=job_attrs,
+                ),
+            )
+
+        return self.make_outputs(
+            multicohort,
+            data=outputs,
+            jobs=list(synthesis_jobs.values()) + registration_jobs,
+        )
+
+
+@stage.stage(required_stages=[GenerateSyntheticProbandGvcfs])
+class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
+    """
+    Build the combiner inputs for the separate synthetic-trio combiner run (currently the
+    ravenscroft-rpl invocation): a pedigree with the synthetic probands inserted, and a gVCF
+    manifest listing every real parental gVCF in the multicohort plus every synthetic gVCF from
+    Stage 1. Both files land at self.prefix so seqr sync can reuse them across loads.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
+        """PED + manifest at fixed paths, plus a hash-named marker.
+
+        The PED and manifest paths never change - downstream tooling (seqr sync, combiner
+        config) expects to find them at stable locations. But their *content* is a function of
+        the multicohort's SG set + qualifying family set. If we relied on the fixed paths alone
+        for REUSE, Stage 2 would silently ship stale content whenever the family set changed.
+
+        The `family_set_marker` key encodes a hash of both sets into its filename, so any change
+        to who's in the multicohort or which families qualify invalidates it and forces Stage 2
+        to re-run. The tiny marker job below writes it only after the PED and manifest jobs
+        succeed, so the marker's existence really does mean "the fixed-path outputs are fresh".
+        """
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        sg_ids = sorted(sg.id for sg in multicohort.get_sequencing_groups())
+        family_ids = sorted(family.family_id for family in families)
+        family_set_hash = hashlib.sha256(('\n'.join([*sg_ids, '--', *family_ids])).encode()).hexdigest()[:12]
+        return {
+            'gvcfs_list': self.prefix / 'all_gvcf_paths_including_synthetic_gvcfs.txt',
+            'pedigree': self.prefix / 'synthetic_pedigree.ped',
+            'family_set_marker': self.prefix / f'families-{family_set_hash}.marker',
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        families = utils.get_families_for_synthetic_probands(multicohort)
+        outputs = self.expected_outputs(multicohort)
+        job_attrs = self.get_job_attrs(multicohort)
+
+        # Stage 1's outputs contain both `_gvcf` and `_registered` keys per family; we only want
+        # the gVCF paths here (indexed by internal family_id, as the manifest builder expects).
+        stage_1_outputs = inputs.as_dict(
+            target=multicohort,
+            stage=GenerateSyntheticProbandGvcfs,
+        )
+        synthetic_gvcf_paths = {
+            family.family_id: stage_1_outputs[f'{family.external_family_id}_gvcf'] for family in families
+        }
+
+        pedigree_job = create_pedigree_job(
+            families=families,
+            multicohort=multicohort,
+            output_ped=outputs['pedigree'],
+            job_attrs=job_attrs,
+        )
+        manifest_job = create_manifest_job(
+            families=families,
+            synthetic_gvcf_paths=synthetic_gvcf_paths,
+            multicohort=multicohort,
+            output_manifest=outputs['gvcfs_list'],
+            job_attrs=job_attrs,
+        )
+        marker_job = create_family_set_marker_job(
+            marker_path=outputs['family_set_marker'],
+            upstream_jobs=[pedigree_job, manifest_job],
+            job_attrs=job_attrs,
+        )
+
+        return self.make_outputs(multicohort, data=outputs, jobs=[pedigree_job, manifest_job, marker_job])
 
 
 @stage.stage(analysis_type='combiner', analysis_keys=['vds'])
