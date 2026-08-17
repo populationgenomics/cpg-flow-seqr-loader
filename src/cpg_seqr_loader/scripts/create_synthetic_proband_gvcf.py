@@ -369,7 +369,7 @@ def emit_ref_block(
     out_vcf.write(out)
 
 
-def merge_contig(
+def merge_contig(  # noqa: PLR0915 - complex two-pointer sweep with several interior branches; splitting hurts readability more than it helps
     out_vcf: pysam.VariantFile,
     header: pysam.VariantHeader,
     sample_name: str,
@@ -386,6 +386,10 @@ def merge_contig(
     """
     while _on_contig(mother_iter, contig) and _on_contig(father_iter, contig):
         mother, father = mother_iter.peek(), father_iter.peek()
+        # _on_contig guarantees peek() is not None; raise explicitly so mypy can narrow the
+        # types (and so this survives `python -O` unlike an assert).
+        if mother is None or father is None:
+            raise RuntimeError('_on_contig invariant violated: peek returned None')
         m_start, m_end = mother.pos, mother.stop
         f_start, f_end = father.pos, father.stop
 
@@ -445,19 +449,13 @@ def merge_contig(
             # emits overlapping records in complex TR loci (outer deletion + phased interior
             # insertion/SNV); without look-ahead the interior would be silently dropped because
             # the outer pops after the sweep has already advanced past the interior's position.
-            mother_starter_result = (
-                None if mother_starts_here else mother_iter.peek_starter(contig, seg_start)
-            )
-            father_starter_result = (
-                None if father_starts_here else father_iter.peek_starter(contig, seg_start)
-            )
+            mother_starter_result = None if mother_starts_here else mother_iter.peek_starter(contig, seg_start)
+            father_starter_result = None if father_starts_here else father_iter.peek_starter(contig, seg_start)
             mother_contributor = (
-                mother if mother_starts_here
-                else (mother_starter_result[1] if mother_starter_result else None)
+                mother if mother_starts_here else (mother_starter_result[1] if mother_starter_result else None)
             )
             father_contributor = (
-                father if father_starts_here
-                else (father_starter_result[1] if father_starter_result else None)
+                father if father_starts_here else (father_starter_result[1] if father_starter_result else None)
             )
 
             if mother_contributor is not None or father_contributor is not None:
@@ -468,9 +466,7 @@ def merge_contig(
                 # The common REF is the longest contributing REF; each ALT is re-anchored to it
                 # (see _reanchor_alt) so a multiallelic merge of differently-anchored indels stays
                 # normalised and left-aligned for sparse_split_multi.
-                contributing_refs = [
-                    rec.ref for rec in (mother_contributor, father_contributor) if rec is not None
-                ]
+                contributing_refs = [rec.ref for rec in (mother_contributor, father_contributor) if rec is not None]
                 common_ref = max(contributing_refs, key=len)
 
                 # Collect each contributing parent's real ALTs (re-anchored to common_ref), then
@@ -489,6 +485,8 @@ def merge_contig(
                     else []
                 )
                 shared = next((a for a in m_alts if a in f_alts), None)
+                maternal_alt: str | None
+                paternal_alt: str | None
                 if shared is not None:
                     maternal_alt = paternal_alt = shared
                 else:
@@ -635,7 +633,8 @@ def _strip_end_from_variants(raw_path: str, out_path: str, tmp: Path) -> None:
 
 def _next_contig(mother_iter: PeekIter, father_iter: PeekIter, contig_rank: dict[str, int]) -> str:
     """Pick the next contig to process - the lower-ranked of the two streams' current heads."""
-    heads = [it.peek() for it in (mother_iter, father_iter) if it.peek() is not None]
+    # Capture each peek exactly once so the None-filter narrows the value we actually use.
+    heads = [head for head in (mother_iter.peek(), father_iter.peek()) if head is not None]
     return min((h.contig for h in heads), key=lambda c: contig_rank.get(c, len(contig_rank)))
 
 

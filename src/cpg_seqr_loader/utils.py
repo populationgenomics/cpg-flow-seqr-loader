@@ -136,7 +136,6 @@ FAMILY_EXTERNAL_IDS_QUERY = gql(
 )
 
 
-
 def read_bed_file_as_intervals(bed_path: str) -> list[hl.Interval]:
     """Manually interpret an input BED file as a series of Intervals."""
     # read intervals BED file manually
@@ -350,9 +349,7 @@ def get_family_external_id_map(dataset_name: str) -> dict[str, str]:
     metamist_proj = get_metamist().get_metamist_proj(dataset_name)
     result = query(FAMILY_EXTERNAL_IDS_QUERY, variables={'project': metamist_proj})
     return {
-        str(family['id']): family['externalId']
-        for family in result['project']['families']
-        if family.get('externalId')
+        str(family['id']): family['externalId'] for family in result['project']['families'] if family.get('externalId')
     }
 
 

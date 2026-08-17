@@ -29,7 +29,6 @@ from metamist.graphql import gql, query
 
 from cpg_seqr_loader.utils import SYNTHETIC_GVCF_ANALYSIS_TYPE
 
-
 # GraphQL: list every active synthetic_gvcf Analysis in the project. We filter to the specific
 # parental SG pair in Python (a `sequencingGroupIds` filter that requires exact-set match is not
 # directly supported by the API - see AnalysisQueryModel.sequencing_group_ids, which is an

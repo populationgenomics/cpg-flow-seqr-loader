@@ -37,6 +37,7 @@ from cpg_seqr_loader.jobs.TrainVqsrSnpTranches import train_vqsr_snp_tranches
 
 SHARD_MANIFEST = 'shard-manifest.txt'
 
+
 @stage.stage
 class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
     """
@@ -103,6 +104,7 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
             jobs=list(synthesis_jobs.values()) + registration_jobs,
         )
 
+
 @stage.stage(required_stages=[GenerateSyntheticProbandGvcfs])
 class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
     """
@@ -130,8 +132,7 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
             stage=GenerateSyntheticProbandGvcfs,
         )
         synthetic_gvcf_paths = {
-            family.family_id: stage_1_outputs[f'{family.external_family_id}_gvcf']
-            for family in families
+            family.family_id: stage_1_outputs[f'{family.external_family_id}_gvcf'] for family in families
         }
 
         pedigree_job = create_pedigree_job(

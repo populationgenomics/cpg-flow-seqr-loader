@@ -42,7 +42,7 @@ def create_synthesis_jobs(
         Dict keyed by family_id -> BashJob, so downstream registration jobs can depend on the
         matching synthesis job. Empty dict if no families qualify.
     """
-    jobs: dict[str, 'BashJob'] = {}
+    jobs: dict[str, 'BashJob'] = {}  # noqa: UP037 - BashJob is TYPE_CHECKING-only
     for family in families:
         output = output_paths[family.family_id]
 
@@ -106,7 +106,7 @@ def create_analysis_registration_jobs(
         project: metamist project name (the dataset the parental SGs live in).
         job_attrs: base job attributes from the calling stage.
     """
-    jobs: list['BashJob'] = []
+    jobs: list['BashJob'] = []  # noqa: UP037 - BashJob is TYPE_CHECKING-only
     for family in families:
         marker = marker_paths[family.family_id]
         if to_path(marker).exists():

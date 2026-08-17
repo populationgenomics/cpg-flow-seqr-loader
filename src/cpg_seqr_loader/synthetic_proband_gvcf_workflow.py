@@ -8,7 +8,7 @@ import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import GenerateSyntheticProbandGvcfs, GenerateSyntheticProbandCombinerInputs
+from cpg_seqr_loader.stages import GenerateSyntheticProbandCombinerInputs, GenerateSyntheticProbandGvcfs
 
 
 def cli_main():

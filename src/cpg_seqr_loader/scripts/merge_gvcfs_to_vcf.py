@@ -71,8 +71,7 @@ def main():
 
     # pull each gVCF in together with its adjacent .tbi (shared root) so merge finds the index
     local_inputs = [
-        batch.read_input_group(**{'g.vcf.gz': gvcf, 'g.vcf.gz.tbi': f'{gvcf}.tbi'})['g.vcf.gz']
-        for gvcf in args.input
+        batch.read_input_group(**{'g.vcf.gz': gvcf, 'g.vcf.gz.tbi': f'{gvcf}.tbi'})['g.vcf.gz'] for gvcf in args.input
     ]
     inputs_arg = ' '.join(str(gvcf) for gvcf in local_inputs)
 
