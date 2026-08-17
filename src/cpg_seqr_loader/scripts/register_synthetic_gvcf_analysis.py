@@ -20,6 +20,7 @@ re-produced.
 
 from argparse import ArgumentParser
 
+from cpg_flow.metamist import get_metamist
 from loguru import logger
 from metamist import models
 from metamist.apis import AnalysisApi
@@ -93,13 +94,19 @@ def create_registration(
     father_sg_id: str,
     mother_source_gvcf: str,
     father_source_gvcf: str,
-) -> int:
-    """Create a fresh synthetic_gvcf Analysis. Returns the new analysis id."""
-    analysis = models.Analysis(
-        type=SYNTHETIC_GVCF_ANALYSIS_TYPE,
-        status=models.AnalysisStatus('completed'),
+) -> int | None:
+    """Create a fresh synthetic_gvcf Analysis. Returns the new analysis id.
+
+    Uses cpg_flow.metamist.get_metamist().create_analysis so that the metamist project name is
+    adjusted for the current access level (bare `ravenscroft-rpl` becomes `ravenscroft-rpl-test`
+    at test access) and retries are handled by the framework.
+    """
+    return get_metamist().create_analysis(
         output=gvcf_path,
+        type_=SYNTHETIC_GVCF_ANALYSIS_TYPE,
+        status='completed',
         sequencing_group_ids=[mother_sg_id, father_sg_id],
+        dataset=project,
         meta={
             'family_id': family_id,
             'sample_name_in_gvcf': sample_name,
@@ -107,12 +114,6 @@ def create_registration(
             'source_father_gvcf': father_source_gvcf,
         },
     )
-    analysis_id = AnalysisApi().create_analysis(project=project, analysis=analysis)
-    logger.info(
-        f'Created synthetic_gvcf Analysis id={analysis_id} for family {family_id} '
-        f'(SGs {mother_sg_id}, {father_sg_id}; output {gvcf_path})',
-    )
-    return analysis_id
 
 
 def cli_main():

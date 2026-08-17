@@ -114,6 +114,7 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
 
         pedigree_job = create_pedigree_job(
             families=families,
+            multicohort=multicohort,
             output_ped=outputs['pedigree'],
             job_attrs=job_attrs,
         )

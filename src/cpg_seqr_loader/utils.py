@@ -394,27 +394,33 @@ def build_gvcf_manifest_content(paths: list[str]) -> str:
     return '\n'.join(paths) + '\n'
 
 
-def build_synthetic_pedigree_content(families: list[SyntheticProbandFamily]) -> str:
-    """6-column TSV PED content, three rows per duo family (mother, father, synthetic proband).
+_PED_FIELDS = ('Family.ID', 'Individual.ID', 'Father.ID', 'Mother.ID', 'Sex', 'Phenotype')
 
-    PED columns: family_id, individual_id, father_id, mother_id, sex (1=male, 2=female), phenotype
-    (1=unaffected, 2=affected).
 
-    Individual IDs are the strings that appear as the sample name in each gVCF header - SG IDs
-    for the parents (matching what CPG-produced gVCFs use as SM) and `<family_id>_synthetic_proband`
-    for the child. These MUST match the sample IDs in the loaded seqr MatrixTable or seqr will
-    silently disable trio inheritance filtering for the family.
+def build_synthetic_pedigree_content(
+    multicohort: targets.MultiCohort,
+    families: list[SyntheticProbandFamily],
+) -> str:
+    """6-column TSV PED content, no header.
 
-    Non-qualifying families are absent from this PED. Their real parental gVCFs still appear in
-    the combiner manifest (so they show up in seqr as individuals), but without a trio row here
-    they get no inheritance filtering, which is the correct behaviour for data-quality failures.
+    One row per real sequencing group in the multicohort (via cpg-flow's
+    sg.pedigree.get_ped_dict, mirroring what multicohort.write_ped_file would produce), plus one
+    row per qualifying duo family's synthetic proband (male, affected, referencing its parents).
+
+    Row-inclusion is deliberately broader than the qualifying-family set so seqr sees every real
+    SG whose gVCF appears in the combiner manifest, whether or not their family qualified for
+    synthetic proband synthesis. Non-qualifying real families still get whatever trio linkage
+    their metamist pedigree happens to encode.
+
+    The synthetic proband's individual ID (`<family_id>_synthetic_proband`) MUST match the sample
+    name embedded in the gVCF header and the sample ID that appears in the loaded seqr
+    MatrixTable, or seqr will silently disable trio inheritance filtering for the family.
     """
     lines: list[str] = []
+    for sg in multicohort.get_sequencing_groups():
+        ped_dict = sg.pedigree.get_ped_dict()
+        lines.append('\t'.join(str(ped_dict[field]) for field in _PED_FIELDS))
     for family in families:
-        # Parents: no parents of their own recorded; unaffected.
-        lines.append(f'{family.family_id}\t{family.mother_sg.id}\t0\t0\t2\t1')
-        lines.append(f'{family.family_id}\t{family.father_sg.id}\t0\t0\t1\t1')
-        # Synthetic proband: male, affected, references its parents.
         lines.append(
             f'{family.family_id}\t{family.synthetic_sample_name}'
             f'\t{family.father_sg.id}\t{family.mother_sg.id}\t1\t2',

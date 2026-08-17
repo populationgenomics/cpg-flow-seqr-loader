@@ -48,11 +48,16 @@ def _write_content_job(name: str, content: str, out_path: Path, job_attrs: dict)
 
 def create_pedigree_job(
     families: list[SyntheticProbandFamily],
+    multicohort: targets.MultiCohort,
     output_ped: Path,
     job_attrs: dict,
 ) -> 'BashJob':
-    """One Batch job that writes the synthetic-proband PED for all qualifying duo families."""
-    content = build_synthetic_pedigree_content(families)
+    """One Batch job that writes the synthetic-trio PED for the whole multicohort.
+
+    Content includes every real SG in the multicohort plus a synthetic-proband row for each
+    qualifying duo family. See utils.build_synthetic_pedigree_content for the row semantics.
+    """
+    content = build_synthetic_pedigree_content(multicohort, families)
     return _write_content_job(
         name='WriteSyntheticPedigree',
         content=content,
