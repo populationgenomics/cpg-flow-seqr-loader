@@ -58,11 +58,13 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
         families = utils.get_families_for_synthetic_probands(multicohort)
         outputs: dict[str, Path] = {}
         for family in families:
-            outputs[f'{family.family_id}_gvcf'] = (
-                self.prefix / f'{family.family_id}_synthetic_proband.g.vcf.gz'
+            # Filenames use the external family ID so collaborators recognise the artefacts.
+            # Dict keys use the same, so downstream lookups stay symmetrical.
+            outputs[f'{family.external_family_id}_gvcf'] = (
+                self.prefix / f'{family.external_family_id}_synthetic_proband.g.vcf.gz'
             )
-            outputs[f'{family.family_id}_registered'] = (
-                self.prefix / f'{family.family_id}_registered.txt'
+            outputs[f'{family.external_family_id}_registered'] = (
+                self.prefix / f'{family.external_family_id}_registered.txt'
             )
         return outputs
 
@@ -71,8 +73,8 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
         outputs = self.expected_outputs(multicohort)
         job_attrs = self.get_job_attrs(multicohort)
 
-        gvcf_paths = {f.family_id: outputs[f'{f.family_id}_gvcf'] for f in families}
-        marker_paths = {f.family_id: outputs[f'{f.family_id}_registered'] for f in families}
+        gvcf_paths = {f.family_id: outputs[f'{f.external_family_id}_gvcf'] for f in families}
+        marker_paths = {f.family_id: outputs[f'{f.external_family_id}_registered'] for f in families}
 
         synthesis_jobs = create_synthesis_jobs(
             families=families,
@@ -122,13 +124,13 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
         job_attrs = self.get_job_attrs(multicohort)
 
         # Stage 1's outputs contain both `_gvcf` and `_registered` keys per family; we only want
-        # the gVCF paths here (indexed by bare family_id, as the manifest builder expects).
+        # the gVCF paths here (indexed by internal family_id, as the manifest builder expects).
         stage_1_outputs = inputs.as_dict(
             target=multicohort,
             stage=GenerateSyntheticProbandGvcfs,
         )
         synthetic_gvcf_paths = {
-            family.family_id: stage_1_outputs[f'{family.family_id}_gvcf']
+            family.family_id: stage_1_outputs[f'{family.external_family_id}_gvcf']
             for family in families
         }
 

@@ -53,8 +53,8 @@ def create_synthesis_jobs(
             continue
 
         job = hail_batch.get_batch().new_bash_job(
-            f'SynthesizeProband_{family.family_id}',
-            attributes=job_attrs | {'tool': 'pysam', 'family_id': family.family_id},
+            f'SynthesizeProband_{family.external_family_id}',
+            attributes=job_attrs | {'tool': 'pysam', 'family_id': family.external_family_id},
         )
         job.image(config.config_retrieve(['workflow', 'driver_image']))
 
@@ -115,8 +115,8 @@ def create_analysis_registration_jobs(
         gvcf = gvcf_paths[family.family_id]
 
         job = hail_batch.get_batch().new_bash_job(
-            f'RegisterSyntheticProband_{family.family_id}',
-            attributes=job_attrs | {'tool': 'metamist', 'family_id': family.family_id},
+            f'RegisterSyntheticProband_{family.external_family_id}',
+            attributes=job_attrs | {'tool': 'metamist', 'family_id': family.external_family_id},
         )
         job.image(config.config_retrieve(['workflow', 'driver_image']))
 
@@ -130,7 +130,7 @@ def create_analysis_registration_jobs(
                 --project {project} \\
                 --gvcf_path {gvcf!s} \\
                 --sample_name {family.synthetic_sample_name} \\
-                --family_id {family.family_id} \\
+                --family_id {family.external_family_id} \\
                 --mother_sg_id {family.mother_sg.id} \\
                 --father_sg_id {family.father_sg.id} \\
                 --mother_source_gvcf {family.mother_sg.gvcf!s} \\

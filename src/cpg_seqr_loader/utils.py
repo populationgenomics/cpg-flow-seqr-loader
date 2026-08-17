@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING
 
 import loguru
 from cpg_flow import targets
+from cpg_flow.metamist import get_metamist
 from cpg_utils import Path, config, hail_batch, to_path
+from metamist.apis import FamilyApi
 from metamist.graphql import gql, query
 
 import hail as hl
@@ -120,6 +122,7 @@ SPECIFIC_VDS_QUERY = gql(
     }
 """,
 )
+
 
 
 def read_bed_file_as_intervals(bed_path: str) -> list[hl.Interval]:
@@ -296,6 +299,12 @@ SYNTHETIC_GVCF_ANALYSIS_TYPE = 'synthetic_gvcf'
 class SyntheticProbandFamily:
     """One duo family in the multicohort, plus the invented name for its synthetic proband.
 
+    Both metamist family IDs are kept:
+      - family_id is the internal metamist ID (e.g. "18958") - stable, used for dict keys.
+      - external_family_id is the collaborator-facing ID (e.g. "F000045871") - used in file
+        names, sample names, PED rows, and Batch job labels so the pre-workflow's artefacts read
+        as the identifiers our collaborators already know.
+
     The synthetic_sample_name string is the single source of truth for the synthetic proband's
     identity across the pre-workflow: it is embedded in the gVCF header (as the sample column
     name), written into the PED file as the proband row's individual ID, and later appears in the
@@ -304,9 +313,37 @@ class SyntheticProbandFamily:
     """
 
     family_id: str
+    external_family_id: str
     mother_sg: targets.SequencingGroup
     father_sg: targets.SequencingGroup
     synthetic_sample_name: str
+
+
+@functools.cache
+def get_family_external_id_map(dataset_name: str) -> dict[str, str]:
+    """Return `{internal_family_id_str: external_family_id}` for every family in `dataset_name`.
+
+    cpg-flow's pedigree query passes `replaceWithFamilyExternalIds: false`, so anything the
+    framework surfaces (e.g. sg.pedigree.fam_id) is the internal metamist ID. This helper does
+    the extra lookup so callers can convert to the external ID collaborators know.
+
+    Families can carry multiple external IDs (one per source registry, e.g. seqr, molpath). We
+    return the first value in that dict; for ravenscroft-rpl each family has only one. Families
+    with no external IDs at all are omitted from the map (upstream callers should log-and-skip).
+
+    Uses metamist's FamilyApi REST client rather than a bespoke GraphQL query so we don't
+    duplicate what the framework already exposes. Access-level suffixing (`-test`) is applied via
+    cpg-flow's `get_metamist_proj` so the same call works at test and standard access levels.
+    """
+    metamist_proj = get_metamist().get_metamist_proj(dataset_name)
+    families = FamilyApi().get_families(project=metamist_proj)
+    result: dict[str, str] = {}
+    for family in families:
+        external_ids = getattr(family, 'external_ids', None) or {}
+        if not external_ids:
+            continue
+        result[str(family.id)] = next(iter(external_ids.values()))
+    return result
 
 
 @functools.cache
@@ -321,10 +358,18 @@ def get_families_for_synthetic_probands(
       - neither member's pedigree references a parent (i.e. both members are themselves parents;
         no real proband is present in the family)
       - both members have a gVCF registered in metamist
+      - the family has at least one external ID recorded in metamist (needed for the
+        collaborator-facing sample name that ends up in gVCF headers, PED rows, and seqr)
 
     Families that don't match are logged and skipped, not raised, so a mixed multicohort still
     produces synthetic probands for the families that do qualify.
     """
+    # Union family-external-id maps across every dataset represented in the multicohort. Usually
+    # there is only one dataset (e.g. ravenscroft-rpl) but the code handles a mixed multicohort.
+    external_id_by_internal: dict[str, str] = {}
+    for dataset in multicohort.get_datasets():
+        external_id_by_internal.update(get_family_external_id_map(dataset.name))
+
     grouped: dict[str, list[targets.SequencingGroup]] = {}
     for sg in multicohort.get_sequencing_groups():
         family_id = sg.pedigree.fam_id
@@ -370,12 +415,20 @@ def get_families_for_synthetic_probands(
             )
             continue
 
+        external_family_id = external_id_by_internal.get(family_id)
+        if not external_family_id:
+            loguru.logger.warning(
+                f'Skipping family {family_id}: no external family ID recorded in metamist',
+            )
+            continue
+
         families.append(
             SyntheticProbandFamily(
                 family_id=family_id,
+                external_family_id=external_family_id,
                 mother_sg=mother_sg,
                 father_sg=father_sg,
-                synthetic_sample_name=f'{family_id}_synthetic_proband',
+                synthetic_sample_name=f'{external_family_id}_synthetic_proband',
             ),
         )
 
@@ -407,22 +460,37 @@ def build_synthetic_pedigree_content(
     sg.pedigree.get_ped_dict, mirroring what multicohort.write_ped_file would produce), plus one
     row per qualifying duo family's synthetic proband (male, affected, referencing its parents).
 
+    Family.ID column is remapped from the internal metamist ID (what cpg-flow surfaces) to the
+    external family ID our collaborators know. All rows for the same family MUST share the same
+    Family.ID string or seqr won't group them into a trio - the synthetic proband row uses the
+    external ID, so the real parent rows must too.
+
     Row-inclusion is deliberately broader than the qualifying-family set so seqr sees every real
     SG whose gVCF appears in the combiner manifest, whether or not their family qualified for
     synthetic proband synthesis. Non-qualifying real families still get whatever trio linkage
     their metamist pedigree happens to encode.
 
-    The synthetic proband's individual ID (`<family_id>_synthetic_proband`) MUST match the sample
-    name embedded in the gVCF header and the sample ID that appears in the loaded seqr
+    The synthetic proband's individual ID (`<external_family_id>_synthetic_proband`) MUST match
+    the sample name embedded in the gVCF header and the sample ID that appears in the loaded seqr
     MatrixTable, or seqr will silently disable trio inheritance filtering for the family.
     """
+    external_id_by_internal: dict[str, str] = {}
+    for dataset in multicohort.get_datasets():
+        external_id_by_internal.update(get_family_external_id_map(dataset.name))
+
     lines: list[str] = []
     for sg in multicohort.get_sequencing_groups():
         ped_dict = sg.pedigree.get_ped_dict()
-        lines.append('\t'.join(str(ped_dict[field]) for field in _PED_FIELDS))
+        # Remap Family.ID from internal → external where we have a mapping; SGs whose family
+        # has no external ID fall through with the internal value (they won't be grouped with
+        # any synthetic-proband row, which is fine — they're unqualifying families anyway).
+        internal_fam = str(ped_dict['Family.ID'])
+        family_id_for_ped = external_id_by_internal.get(internal_fam, internal_fam)
+        row_values = [family_id_for_ped] + [str(ped_dict[field]) for field in _PED_FIELDS[1:]]
+        lines.append('\t'.join(row_values))
     for family in families:
         lines.append(
-            f'{family.family_id}\t{family.synthetic_sample_name}'
+            f'{family.external_family_id}\t{family.synthetic_sample_name}'
             f'\t{family.father_sg.id}\t{family.mother_sg.id}\t1\t2',
         )
     return '\n'.join(lines) + '\n'
