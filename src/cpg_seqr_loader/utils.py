@@ -12,7 +12,6 @@ import loguru
 from cpg_flow import targets
 from cpg_flow.metamist import get_metamist
 from cpg_utils import Path, config, hail_batch, to_path
-from metamist.apis import FamilyApi
 from metamist.graphql import gql, query
 
 import hail as hl
@@ -117,6 +116,19 @@ SPECIFIC_VDS_QUERY = gql(
             output
             sequencingGroups {
                 id
+            }
+        }
+    }
+""",
+)
+
+FAMILY_EXTERNAL_IDS_QUERY = gql(
+    """
+    query FamilyExternalIds($project: String!) {
+        project(name: $project) {
+            families {
+                id
+                externalId
             }
         }
     }
@@ -327,23 +339,21 @@ def get_family_external_id_map(dataset_name: str) -> dict[str, str]:
     framework surfaces (e.g. sg.pedigree.fam_id) is the internal metamist ID. This helper does
     the extra lookup so callers can convert to the external ID collaborators know.
 
-    Families can carry multiple external IDs (one per source registry, e.g. seqr, molpath). We
-    return the first value in that dict; for ravenscroft-rpl each family has only one. Families
-    with no external IDs at all are omitted from the map (upstream callers should log-and-skip).
+    Uses metamist's GraphQL API rather than the auto-generated FamilyApi REST client. The REST
+    client silently drops external IDs recorded under an empty-string source key (which is what
+    create_test_subset.py produces), while the GraphQL `externalId` scalar returns them cleanly.
 
-    Uses metamist's FamilyApi REST client rather than a bespoke GraphQL query so we don't
-    duplicate what the framework already exposes. Access-level suffixing (`-test`) is applied via
-    cpg-flow's `get_metamist_proj` so the same call works at test and standard access levels.
+    Families with no external ID at all are omitted from the map (upstream callers should
+    log-and-skip). Access-level suffixing (`-test`) is applied via cpg-flow's
+    `get_metamist_proj` so the same call works at test and standard access levels.
     """
     metamist_proj = get_metamist().get_metamist_proj(dataset_name)
-    families = FamilyApi().get_families(project=metamist_proj)
-    result: dict[str, str] = {}
-    for family in families:
-        external_ids = getattr(family, 'external_ids', None) or {}
-        if not external_ids:
-            continue
-        result[str(family.id)] = next(iter(external_ids.values()))
-    return result
+    result = query(FAMILY_EXTERNAL_IDS_QUERY, variables={'project': metamist_proj})
+    return {
+        str(family['id']): family['externalId']
+        for family in result['project']['families']
+        if family.get('externalId')
+    }
 
 
 @functools.cache
