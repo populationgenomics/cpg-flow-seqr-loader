@@ -27,6 +27,26 @@ from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
 from cpg_seqr_loader.utils import read_bed_file_as_intervals
 
 
+def adjust_info_after_split(mt: hl.MatrixTable, as_fields: set[str]) -> hl.MatrixTable:
+    """Post-split: convert allele-specific INFO arrays to per-allele scalars using a_index."""
+
+    info_updates = {}
+    for field in as_fields:
+        if field not in mt.info:
+            continue
+        if field == 'AS_SB_TABLE':
+            info_updates[field] = [mt.info.AS_SB_TABLE[0], mt.info.AS_SB_TABLE[mt.a_index]]
+        else:
+            info_updates[field] = mt.info[field][mt.a_index - 1]
+
+    mt = mt.annotate_rows(info=mt.info.annotate(**info_updates))
+
+    if 'AS_lowqual' in mt.row:
+        mt = mt.annotate_rows(AS_lowqual=mt.AS_lowqual[mt.a_index - 1])
+
+    return mt
+
+
 def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
     """
     Segregating the densification logic out here - this method reads in a VDS, densifies, repartitions, and checkpoints
@@ -109,7 +129,7 @@ def main(
             mt = densify(vds_in, dense_checkpoint_path)
 
         # content shared with large_cohort.site_only_vcf.py
-        info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
+        info_ht, as_info_fields = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
         info_ht = info_ht.annotate(info=info_ht.info.annotate(DP=mt.rows()[info_ht.key].site_dp))
 
         info_ht = adjust_vcf_incompatible_types(
@@ -130,6 +150,9 @@ def main(
 
         loguru.logger.info('Splitting multiallelics, in a sparse way')
         mt = hl.experimental.sparse_split_multi(mt)
+
+        loguru.logger.info('Adjusting allele-specific INFO fields for split alleles')
+        mt = adjust_info_after_split(mt, as_info_fields)
 
         loguru.logger.info(f'Writing fresh data into {dense_mt_out}')
         mt.write(dense_mt_out, overwrite=True)
