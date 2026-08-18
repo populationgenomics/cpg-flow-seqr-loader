@@ -27,6 +27,17 @@ from cpg_seqr_loader.hail_scripts.vcf import adjust_vcf_incompatible_types
 from cpg_seqr_loader.utils import read_bed_file_as_intervals
 
 
+def re_key_with_minrep(mt: hl.MatrixTable) -> hl.MatrixTable:
+    """Find the minimal representation for each variant."""
+    mt = mt.annotate_rows(minrep=hl.min_rep(mt.locus, mt.alleles))
+
+    # rotate the table key(s)
+    return mt.key_rows_by(
+        locus=mt.minrep.locus,
+        alleles=mt.minrep.alleles,
+    )
+
+
 def densify(vds_path: str, checkpoint_path: str) -> hl.MatrixTable:
     """
     Segregating the densification logic out here - this method reads in a VDS, densifies, repartitions, and checkpoints
@@ -107,6 +118,9 @@ def main(
         else:
             loguru.logger.info(f'Running a VDS -> with densification, checkpointing to {dense_checkpoint_path}')
             mt = densify(vds_in, dense_checkpoint_path)
+
+        # re-key the data on an accurate minimal-representation
+        mt = re_key_with_minrep(mt)
 
         # content shared with large_cohort.site_only_vcf.py
         info_ht = default_compute_info(mt, site_annotations=True, n_partitions=mt.n_partitions())
