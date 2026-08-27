@@ -383,6 +383,101 @@ def _get_synthetic_proband_couples_config(
     return entries_by_external_fid
 
 
+def _couple_from_auto_duo(
+    members: list[targets.SequencingGroup],
+) -> tuple[targets.SequencingGroup, targets.SequencingGroup] | None:
+    """Return the (mother, father) pair if `members` is a clean 1M+1F duo, else None."""
+    if len(members) != 2:
+        return None
+    sex_to_sg = {m.pedigree.sex.name: m for m in members}
+    if set(sex_to_sg) != {'MALE', 'FEMALE'}:
+        return None
+    return sex_to_sg['FEMALE'], sex_to_sg['MALE']
+
+
+def _couple_from_config(
+    family_id: str,
+    external_family_id: str,
+    members: list[targets.SequencingGroup],
+    config_entry: dict,
+) -> tuple[targets.SequencingGroup, targets.SequencingGroup] | None:
+    """Resolve the (mother, father) pair from an explicit config entry.
+
+    Returns None (with a WARNING logged) if the entry is malformed, names SGs that aren't in the
+    family, or names SGs with the wrong pedigree sex.
+    """
+    mother_id = config_entry.get('mother_sg')
+    father_id = config_entry.get('father_sg')
+    if not mother_id or not father_id:
+        loguru.logger.warning(
+            f'Skipping family {family_id} ({external_family_id}): '
+            'config entry has no mother_sg/father_sg and skip is not set',
+        )
+        return None
+
+    by_id = {m.id: m for m in members}
+    mother_sg = by_id.get(mother_id)
+    father_sg = by_id.get(father_id)
+    if mother_sg is None or father_sg is None:
+        loguru.logger.warning(
+            f'Skipping family {family_id} ({external_family_id}): '
+            f'config names mother_sg={mother_id!r} father_sg={father_id!r} '
+            f'but the family has SGs {sorted(by_id)}',
+        )
+        return None
+    if mother_sg.pedigree.sex.name != 'FEMALE' or father_sg.pedigree.sex.name != 'MALE':
+        loguru.logger.warning(
+            f'Skipping family {family_id} ({external_family_id}): '
+            f'config-selected mother_sg has sex {mother_sg.pedigree.sex.name}, '
+            f'father_sg has sex {father_sg.pedigree.sex.name} (need FEMALE / MALE)',
+        )
+        return None
+
+    return mother_sg, father_sg
+
+
+def _select_couple_for_family(
+    family_id: str,
+    external_family_id: str,
+    members: list[targets.SequencingGroup],
+    config_entry: dict | None,
+) -> tuple[targets.SequencingGroup, targets.SequencingGroup] | None:
+    """Pick the (mother_sg, father_sg) pair for one family, or None if it should be skipped.
+
+    Skip decisions are logged inside this function so the caller can just filter Nones. The
+    caller separately tracks the "multi-member family with no config entry" case for its
+    end-of-run summary warning.
+    """
+    if config_entry and config_entry.get('skip'):
+        loguru.logger.info(
+            f'Skipping family {family_id} ({external_family_id}): '
+            'opted out via synthetic_proband_couples config (skip = true)',
+        )
+        return None
+
+    if len(members) == 1:
+        loguru.logger.warning(
+            f'Skipping family {family_id} ({external_family_id}): only 1 SG in the family, '
+            'nothing to build a synthetic proband from',
+        )
+        return None
+
+    if config_entry is None:
+        # No override -> auto-qualify a clean 1M+1F duo, or warn+skip anything else.
+        couple = _couple_from_auto_duo(members)
+        if couple is not None:
+            return couple
+        loguru.logger.warning(
+            f'Skipping family {family_id} ({external_family_id}): '
+            f'{len(members)} SGs and no synthetic_proband_couples entry. '
+            'Add one under workflow.<dataset>.synthetic_proband_couples to '
+            'either include this family or explicitly skip it.',
+        )
+        return None
+
+    return _couple_from_config(family_id, external_family_id, members, config_entry)
+
+
 @functools.cache
 def get_families_for_synthetic_probands(
     multicohort: targets.MultiCohort,
@@ -433,70 +528,13 @@ def get_families_for_synthetic_probands(
             continue
 
         config_entry = config_by_external_fid.get(external_family_id)
-        if config_entry and config_entry.get('skip'):
-            loguru.logger.info(
-                f'Skipping family {family_id} ({external_family_id}): '
-                'opted out via synthetic_proband_couples config (skip = true)',
-            )
-            continue
-
-        if len(members) == 1:
-            loguru.logger.warning(
-                f'Skipping family {family_id} ({external_family_id}): only 1 SG in the family, '
-                'nothing to build a synthetic proband from',
-            )
-            continue
-
-        mother_sg: targets.SequencingGroup | None = None
-        father_sg: targets.SequencingGroup | None = None
-
-        # Tier 2: auto-qualify clean 1M+1F duos regardless of affected status.
-        if len(members) == 2 and config_entry is None:
-            sex_to_sg = {m.pedigree.sex.name: m for m in members}
-            if set(sex_to_sg) == {'MALE', 'FEMALE'}:
-                mother_sg = sex_to_sg['FEMALE']
-                father_sg = sex_to_sg['MALE']
-
-        # Tier 4: fall back to explicit config for anything that isn't a clean duo,
-        # or when the user wants to override the auto-selected pair.
-        if mother_sg is None or father_sg is None:
-            if config_entry is None:
-                loguru.logger.warning(
-                    f'Skipping family {family_id} ({external_family_id}): '
-                    f'{len(members)} SGs and no synthetic_proband_couples entry. '
-                    'Add one under workflow.<dataset>.synthetic_proband_couples to '
-                    'either include this family or explicitly skip it.',
-                )
+        couple = _select_couple_for_family(family_id, external_family_id, members, config_entry)
+        if couple is None:
+            if len(members) > 1 and config_entry is None:
                 skipped_needs_config.append(external_family_id)
-                continue
+            continue
 
-            mother_id = config_entry.get('mother_sg')
-            father_id = config_entry.get('father_sg')
-            if not mother_id or not father_id:
-                loguru.logger.warning(
-                    f'Skipping family {family_id} ({external_family_id}): '
-                    'config entry has no mother_sg/father_sg and skip is not set',
-                )
-                continue
-
-            by_id = {m.id: m for m in members}
-            mother_sg = by_id.get(mother_id)
-            father_sg = by_id.get(father_id)
-            if mother_sg is None or father_sg is None:
-                loguru.logger.warning(
-                    f'Skipping family {family_id} ({external_family_id}): '
-                    f'config names mother_sg={mother_id!r} father_sg={father_id!r} '
-                    f'but the family has SGs {sorted(by_id)}',
-                )
-                continue
-            if mother_sg.pedigree.sex.name != 'FEMALE' or father_sg.pedigree.sex.name != 'MALE':
-                loguru.logger.warning(
-                    f'Skipping family {family_id} ({external_family_id}): '
-                    f'config-selected mother_sg has sex {mother_sg.pedigree.sex.name}, '
-                    f'father_sg has sex {father_sg.pedigree.sex.name} (need FEMALE / MALE)',
-                )
-                continue
-
+        mother_sg, father_sg = couple
         if not mother_sg.gvcf or not father_sg.gvcf:
             missing = [m.id for m in (mother_sg, father_sg) if not m.gvcf]
             loguru.logger.warning(
@@ -515,8 +553,7 @@ def get_families_for_synthetic_probands(
         )
 
     loguru.logger.info(
-        f'Synthetic proband selection: {len(families)} families qualified '
-        f'({[f.external_family_id for f in families]})',
+        f'Synthetic proband selection: {len(families)} families qualified ({[f.external_family_id for f in families]})',
     )
     if skipped_needs_config:
         loguru.logger.warning(
