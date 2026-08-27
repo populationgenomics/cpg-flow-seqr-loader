@@ -353,29 +353,65 @@ def get_family_external_id_map(dataset_name: str) -> dict[str, str]:
     }
 
 
+def _get_synthetic_proband_couples_config(
+    multicohort: targets.MultiCohort,
+) -> dict[str, dict]:
+    """Read explicit synthetic-proband couples from config, keyed by external family ID.
+
+    Config shape (per dataset):
+        [workflow.<dataset>]
+        synthetic_proband_couples = [
+          { family_id = "F000012345", mother_sg = "CPGxxx", father_sg = "CPGyyy" },
+          { family_id = "F000067890", skip = true },
+        ]
+
+    Two entry shapes:
+      - couple:  {family_id, mother_sg, father_sg} - forces synthesis using those SGs (used for
+                 families whose composition isn't a clean 1M+1F duo, e.g. 4-person families or
+                 same-sex pairs)
+      - skip:    {family_id, skip = true}          - opts a family out of synthesis even when it
+                 would otherwise auto-qualify (e.g. a 1M+1F duo we don't want a proband for)
+    """
+    entries_by_external_fid: dict[str, dict] = {}
+    for dataset in multicohort.get_datasets():
+        entries = config.config_retrieve(
+            ['workflow', dataset.name, 'synthetic_proband_couples'],
+            [],
+        )
+        for entry in entries:
+            entries_by_external_fid[entry['family_id']] = entry
+    return entries_by_external_fid
+
+
 @functools.cache
 def get_families_for_synthetic_probands(
     multicohort: targets.MultiCohort,
 ) -> list[SyntheticProbandFamily]:
-    """Enumerate the duo-only families in the multicohort that qualify for synthetic-proband generation.
+    """Enumerate the families in the multicohort that should have a synthetic proband built.
 
-    A family qualifies iff all of:
-      - exactly two sequencing groups share its family_id
-      - one has pedigree sex MALE, one has pedigree sex FEMALE
-      - neither member's pedigree references a parent (i.e. both members are themselves parents;
-        no real proband is present in the family)
-      - both members have a gVCF registered in metamist
-      - the family has at least one external ID recorded in metamist (needed for the
-        collaborator-facing sample name that ends up in gVCF headers, PED rows, and seqr)
+    Selection is composition-driven - affected/phenotype status is deliberately NOT consulted,
+    because collaborators may re-label affected status in metamist after the fact.
 
-    Families that don't match are logged and skipped, not raised, so a mixed multicohort still
-    produces synthetic probands for the families that do qualify.
+    Tiers:
+      1. If the family appears in `synthetic_proband_couples` with `skip = true`, skip it.
+      2. Auto-qualify a family with exactly two SGs when one is MALE and one is FEMALE.
+      3. Skip (and log) a family with a single SG - nothing to build from.
+      4. For any other composition (>2 SGs, or 2 SGs that are same-sex), look the family up in
+         `workflow.<dataset>.synthetic_proband_couples`. If a matching entry names a valid
+         (mother_sg, father_sg) pair from within the family, qualify it. Otherwise log a WARNING
+         and skip - the family's real SGs still flow through to the combiner and PED.
+
+    In every tier we still require: both chosen parents have a gVCF registered, and the family has
+    an external ID in metamist (needed for the collaborator-facing sample name that ends up in
+    gVCF headers, PED rows, and seqr).
     """
     # Union family-external-id maps across every dataset represented in the multicohort. Usually
     # there is only one dataset (e.g. ravenscroft-rpl) but the code handles a mixed multicohort.
     external_id_by_internal: dict[str, str] = {}
     for dataset in multicohort.get_datasets():
         external_id_by_internal.update(get_family_external_id_map(dataset.name))
+
+    config_by_external_fid = _get_synthetic_proband_couples_config(multicohort)
 
     grouped: dict[str, list[targets.SequencingGroup]] = {}
     for sg in multicohort.get_sequencing_groups():
@@ -386,46 +422,85 @@ def get_families_for_synthetic_probands(
         grouped.setdefault(family_id, []).append(sg)
 
     families: list[SyntheticProbandFamily] = []
+    skipped_needs_config: list[str] = []
+
     for family_id, members in grouped.items():
-        if len(members) != 2:
-            loguru.logger.warning(
-                f'Skipping family {family_id}: expected 2 members, got {len(members)}',
-            )
-            continue
-
-        # Any member with dad or mom set is a child within this family (indicates a real proband),
-        # so this isn't a parental duo we should synthesize for.
-        if any(m.pedigree.dad or m.pedigree.mom for m in members):
-            loguru.logger.warning(
-                f'Skipping family {family_id}: at least one member has parents set in the pedigree '
-                '(suggests a real proband is present, not a parental duo)',
-            )
-            continue
-
-        # Compare sex by enum name (Sex.__str__ returns .name) to avoid importing the enum, which
-        # is defined in cpg_workflows.targets and not necessarily re-exported by cpg_flow.
-        sex_to_sg = {m.pedigree.sex.name: m for m in members}
-        if set(sex_to_sg) != {'MALE', 'FEMALE'}:
-            observed = [m.pedigree.sex.name for m in members]
-            loguru.logger.warning(
-                f'Skipping family {family_id}: need one male and one female parent, got {observed}',
-            )
-            continue
-
-        mother_sg = sex_to_sg['FEMALE']
-        father_sg = sex_to_sg['MALE']
-
-        if not mother_sg.gvcf or not father_sg.gvcf:
-            missing = [m.id for m in (mother_sg, father_sg) if not m.gvcf]
-            loguru.logger.warning(
-                f'Skipping family {family_id}: no gVCF registered for {missing}',
-            )
-            continue
-
         external_family_id = external_id_by_internal.get(family_id)
         if not external_family_id:
             loguru.logger.warning(
                 f'Skipping family {family_id}: no external family ID recorded in metamist',
+            )
+            continue
+
+        config_entry = config_by_external_fid.get(external_family_id)
+        if config_entry and config_entry.get('skip'):
+            loguru.logger.info(
+                f'Skipping family {family_id} ({external_family_id}): '
+                'opted out via synthetic_proband_couples config (skip = true)',
+            )
+            continue
+
+        if len(members) == 1:
+            loguru.logger.warning(
+                f'Skipping family {family_id} ({external_family_id}): only 1 SG in the family, '
+                'nothing to build a synthetic proband from',
+            )
+            continue
+
+        mother_sg: targets.SequencingGroup | None = None
+        father_sg: targets.SequencingGroup | None = None
+
+        # Tier 2: auto-qualify clean 1M+1F duos regardless of affected status.
+        if len(members) == 2 and config_entry is None:
+            sex_to_sg = {m.pedigree.sex.name: m for m in members}
+            if set(sex_to_sg) == {'MALE', 'FEMALE'}:
+                mother_sg = sex_to_sg['FEMALE']
+                father_sg = sex_to_sg['MALE']
+
+        # Tier 4: fall back to explicit config for anything that isn't a clean duo,
+        # or when the user wants to override the auto-selected pair.
+        if mother_sg is None or father_sg is None:
+            if config_entry is None:
+                loguru.logger.warning(
+                    f'Skipping family {family_id} ({external_family_id}): '
+                    f'{len(members)} SGs and no synthetic_proband_couples entry. '
+                    'Add one under workflow.<dataset>.synthetic_proband_couples to '
+                    'either include this family or explicitly skip it.',
+                )
+                skipped_needs_config.append(external_family_id)
+                continue
+
+            mother_id = config_entry.get('mother_sg')
+            father_id = config_entry.get('father_sg')
+            if not mother_id or not father_id:
+                loguru.logger.warning(
+                    f'Skipping family {family_id} ({external_family_id}): '
+                    'config entry has no mother_sg/father_sg and skip is not set',
+                )
+                continue
+
+            by_id = {m.id: m for m in members}
+            mother_sg = by_id.get(mother_id)
+            father_sg = by_id.get(father_id)
+            if mother_sg is None or father_sg is None:
+                loguru.logger.warning(
+                    f'Skipping family {family_id} ({external_family_id}): '
+                    f'config names mother_sg={mother_id!r} father_sg={father_id!r} '
+                    f'but the family has SGs {sorted(by_id)}',
+                )
+                continue
+            if mother_sg.pedigree.sex.name != 'FEMALE' or father_sg.pedigree.sex.name != 'MALE':
+                loguru.logger.warning(
+                    f'Skipping family {family_id} ({external_family_id}): '
+                    f'config-selected mother_sg has sex {mother_sg.pedigree.sex.name}, '
+                    f'father_sg has sex {father_sg.pedigree.sex.name} (need FEMALE / MALE)',
+                )
+                continue
+
+        if not mother_sg.gvcf or not father_sg.gvcf:
+            missing = [m.id for m in (mother_sg, father_sg) if not m.gvcf]
+            loguru.logger.warning(
+                f'Skipping family {family_id} ({external_family_id}): no gVCF registered for {missing}',
             )
             continue
 
@@ -440,8 +515,15 @@ def get_families_for_synthetic_probands(
         )
 
     loguru.logger.info(
-        f'Found {len(families)} duo families eligible for synthetic proband generation',
+        f'Synthetic proband selection: {len(families)} families qualified '
+        f'({[f.external_family_id for f in families]})',
     )
+    if skipped_needs_config:
+        loguru.logger.warning(
+            f'Synthetic proband selection: {len(skipped_needs_config)} multi-member families '
+            f'skipped for lack of a synthetic_proband_couples config entry: '
+            f'{skipped_needs_config}',
+        )
     return families
 
 
