@@ -7,9 +7,9 @@ Two artifacts, one Batch job each:
     synthetic proband). Persistent so seqr sync can reuse it across loads.
 
   - gVCF manifest: newline-separated list of every gVCF that will go into the synthetic-trio
-    combiner run (the ravenscroft-rpl invocation, in the initial rollout) - every real SG in the
-    multicohort that has a gVCF (qualifying or not, so we don't silently drop samples from the
-    seqr load), plus every synthetic gVCF from Stage 1's outputs.
+    combiner run. It includes every real SG in the multicohort that has a gVCF (qualifying or
+    not, so we don't silently drop samples from the seqr load), plus every synthetic gVCF
+    from Stage 1's outputs.
 
 Content for each file is computed in the driver via the pure builders in `utils`, then dropped
 into a Batch job via a quoted heredoc; `write_output` uploads the produced file to the durable
