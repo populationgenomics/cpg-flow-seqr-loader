@@ -312,7 +312,7 @@ class SyntheticProbandFamily:
 
     Both metamist family IDs are kept:
       - family_id is the internal metamist ID (e.g. "18958") - stable, used for dict keys.
-      - external_family_id is the collaborator-facing ID (e.g. "F000045871") - used in file
+      - external_family_id is the collaborator-facing ID (e.g. "F000012345") - used in file
         names, sample names, PED rows, and Batch job labels so the pre-workflow's artefacts read
         as the identifiers our collaborators already know.
 

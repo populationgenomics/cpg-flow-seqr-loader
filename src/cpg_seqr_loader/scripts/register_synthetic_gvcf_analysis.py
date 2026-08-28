@@ -37,7 +37,7 @@ EXISTING_SYNTHETIC_ANALYSES_QUERY = gql(
     """
     query ExistingSyntheticAnalyses($project: String!, $analysis_type: String!) {
         project(name: $project) {
-            analyses(active: {eq: true}, type: {eq: $analysis_type}) {
+            analyses(type: {eq: $analysis_type}) {
                 id
                 output
                 meta
@@ -98,7 +98,7 @@ def create_registration(
     """Create a fresh synthetic_gvcf Analysis. Returns the new analysis id.
 
     Uses cpg_flow.metamist.get_metamist().create_analysis so that the metamist project name is
-    adjusted for the current access level (bare `ravenscroft-rpl` becomes `ravenscroft-rpl-test`
+    adjusted for the current access level (bare `dataset-name` becomes `dataset-name-test`
     at test access) and retries are handled by the framework.
     """
     return get_metamist().create_analysis(

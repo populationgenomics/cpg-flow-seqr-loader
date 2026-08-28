@@ -111,10 +111,10 @@ class GenerateSyntheticProbandGvcfs(stage.MultiCohortStage):
 @stage.stage(required_stages=[GenerateSyntheticProbandGvcfs])
 class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
     """
-    Build the combiner inputs for the separate synthetic-trio combiner run (currently the
-    ravenscroft-rpl invocation): a pedigree with the synthetic probands inserted, and a gVCF
-    manifest listing every real parental gVCF in the multicohort plus every synthetic gVCF from
-    Stage 1. Both files land at self.prefix so seqr sync can reuse them across loads.
+    Build the combiner inputs for the separate synthetic-trio combiner run: a pedigree with the
+    synthetic probands inserted, and a gVCF manifest listing every real parental gVCF in the
+    multicohort plus every synthetic gVCF from Stage 1. Both files land at self.prefix so seqr
+    sync can reuse them across loads.
     """
 
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path]:
