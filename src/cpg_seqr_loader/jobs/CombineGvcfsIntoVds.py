@@ -127,15 +127,20 @@ def create_combiner_jobs(
         loguru.logger.info(f'Checking if VDS exists: {output_vds}: {output_vds.exists()}')
         return None
 
-    gvcf_add_arg = ''
-    if new_sg_gvcfs:
-        # write the gVCF paths into a temporary file
+    # If the synthetic-proband pre-workflow produced a pre-baked manifest (see the Stage 2 output
+    # `all_gvcf_paths_including_synthetic_gvcfs.txt`), use it verbatim and skip the normal
+    # metamist-driven SG discovery. Otherwise fall back to writing a manifest from new_sg_gvcfs.
+    if synthetic_gvcf_text_file := config.config_retrieve(['combiner', 'synthetic_gvcf_text_file'], None):
+        loguru.logger.info(f'Using synthetic gVCF text file: {synthetic_gvcf_text_file}')
+        localised_version = hail_batch.get_batch().read_input(str(synthetic_gvcf_text_file))
+        gvcf_add_arg = f'--gvcf_add_file {localised_version}'
+    elif new_sg_gvcfs:
         gvcf_path_file = temp_dir / 'gvcfs_to_combine.txt'
-        with gvcf_path_file.open('w') as write_handle:
-            for gvcf_path in new_sg_gvcfs:
-                write_handle.write(f'{gvcf_path!s}\n')
+        utils.write_gvcf_manifest([str(p) for p in new_sg_gvcfs], str(gvcf_path_file))
         localised_version = hail_batch.get_batch().read_input(str(gvcf_path_file))
         gvcf_add_arg = f'--gvcf_add_file {localised_version}'
+    else:
+        gvcf_add_arg = ''
 
     job = hail_batch.get_batch().new_bash_job(
         'CombineGvcfsIntoVds',

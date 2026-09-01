@@ -7,7 +7,7 @@ https://storage.googleapis.com/seqr-reference-data/seqr-vcf-info.pdf). This prod
 bcftools-merged equivalent - it is NOT GATK/DRAGEN joint genotyping: calls are stitched together
 per-sample rather than re-genotyped across the cohort, QUAL/PL are not recomputed and no VQSR is
 applied. seqr's load-time validations still pass; use this for small cohorts (e.g. the synthesized
-dummy-proband trios) where full joint calling is unnecessary.
+synthetic-proband trios) where full joint calling is unnecessary.
 
 Each input gVCF is pulled in together with its adjacent .tbi index (assumed to always exist beside
 the gVCF), so bcftools merge has the index it needs without an in-job indexing step.
@@ -24,7 +24,7 @@ The batch job streams a single pipe, in the bcftools image (no on-disk intermedi
                                   tandem repeats / STRs); seqr's validate_no_duplicate_variants rejects
                                   the whole callset if any variant key repeats. Keeps the first row, so
                                   genotypes carried only on dropped rows are lost - acceptable for a
-                                  pragmatic dummy-trio callset, NOT a substitute for joint genotyping.
+                                  pragmatic synthetic-trio callset, NOT a substitute for joint genotyping.
     5. tabix index the output
 
 Normalising each input gVCF *before* merge was tried and made this worse (independent left-alignment
@@ -32,7 +32,7 @@ fragments tandem-repeat indels into more inconsistent representations, so merge 
 unreconcilable rows) - dedup after the merge is the reliable approach.
 
 This assumes each input gVCF's header already declares GT/AD/GQ (every GATK/DRAGEN gVCF and the
-dummy-synthesis output does) and relies on bcftools always emitting ##FILTER=<ID=PASS>; together
+synthetic gVCF does) and relies on bcftools always emitting ##FILTER=<ID=PASS>; together
 those satisfy seqr's header requirements without a separate reheader step.
 """
 
@@ -71,8 +71,7 @@ def main():
 
     # pull each gVCF in together with its adjacent .tbi (shared root) so merge finds the index
     local_inputs = [
-        batch.read_input_group(**{'g.vcf.gz': gvcf, 'g.vcf.gz.tbi': f'{gvcf}.tbi'})['g.vcf.gz']
-        for gvcf in args.input
+        batch.read_input_group(**{'g.vcf.gz': gvcf, 'g.vcf.gz.tbi': f'{gvcf}.tbi'})['g.vcf.gz'] for gvcf in args.input
     ]
     inputs_arg = ' '.join(str(gvcf) for gvcf in local_inputs)
 
@@ -107,7 +106,7 @@ def main():
         # POS/REF/ALT once the multiallelics are split. seqr's validate_no_duplicate_variants rejects
         # the whole callset if any variant key repeats. -d exact keeps the FIRST such row and drops the
         # rest, so genotypes carried only on dropped rows are lost - acceptable for a pragmatic
-        # dummy-trio callset (the affected sites are low-confidence repeat-region indels), NOT a
+        # synthetic-trio callset (the affected sites are low-confidence repeat-region indels), NOT a
         # substitute for real joint genotyping. It runs last, after the split, so it sees biallelic
         # rows. Normalising each input *before* merge was tried and made this worse (see module docstring).
         bcftools merge --gvcf {reference} -Ou {inputs_arg} \\
