@@ -501,7 +501,7 @@ def get_families_for_synthetic_probands(
     gVCF headers, PED rows, and seqr).
     """
     # Union family-external-id maps across every dataset represented in the multicohort. Usually
-    # there is only one dataset (e.g. ravenscroft-rpl) but the code handles a mixed multicohort.
+    # there is only one dataset, but the code handles a mixed multicohort.
     external_id_by_internal: dict[str, str] = {}
     for dataset in multicohort.get_datasets():
         external_id_by_internal.update(get_family_external_id_map(dataset.name))

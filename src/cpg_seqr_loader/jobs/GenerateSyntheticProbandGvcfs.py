@@ -1,13 +1,14 @@
 """
-Job factories for the synthetic proband gVCF stage.
+Job factory for the synthetic proband gVCF stage.
 
-Two factories work together:
+The single public entry point `create_synthetic_gvcf_jobs` builds every Batch job the stage
+needs and returns them in queue order. Internally it uses two private per-artifact factories:
 
-  - create_synthesis_jobs: one BashJob per duo family that invokes
+  - _create_synthesis_jobs: one BashJob per duo family that invokes
     scripts/create_synthetic_proband_gvcf.py with the family's parental gVCFs, writing the
     output gVCF to the durable per-family path supplied by the stage.
 
-  - create_analysis_registration_jobs: one BashJob per duo family that invokes
+  - _create_analysis_registration_jobs: one BashJob per duo family that invokes
     scripts/register_synthetic_gvcf_analysis.py to record (or refresh) the synthetic gVCF as a
     metamist Analysis of type SYNTHETIC_GVCF_ANALYSIS_TYPE. Each registration job depends_on
     the matching synthesis job so registration only fires once the gVCF actually exists.
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
     from hailtop.batch.job import BashJob
 
 
-def create_synthesis_jobs(
+def _create_synthesis_jobs(
     families: list[SyntheticProbandFamily],
     output_paths: dict[str, Path],
     job_attrs: dict,
@@ -78,7 +79,7 @@ def create_synthesis_jobs(
     return jobs
 
 
-def create_analysis_registration_jobs(
+def _create_analysis_registration_jobs(
     families: list[SyntheticProbandFamily],
     gvcf_paths: dict[str, Path],
     marker_paths: dict[str, Path],
@@ -142,3 +143,44 @@ def create_analysis_registration_jobs(
         jobs.append(job)
 
     return jobs
+
+
+def create_synthetic_gvcf_jobs(
+    families: list[SyntheticProbandFamily],
+    gvcf_paths: dict[str, Path],
+    marker_paths: dict[str, Path],
+    job_attrs: dict,
+) -> list['BashJob']:
+    """Build every Batch job the synthetic-gVCF stage needs, in the order they'll be queued.
+
+    Returns the synthesis jobs (one per family) followed by the registration jobs (one per
+    family). Registration jobs depend on their matching synthesis job so they only fire once
+    the gVCF exists.
+
+    Callers (the Stage class) should treat this as the single entry point for the stage - the
+    per-artifact factories are private to this module and shouldn't be invoked directly.
+    """
+    synthesis_jobs = _create_synthesis_jobs(
+        families=families,
+        output_paths=gvcf_paths,
+        job_attrs=job_attrs,
+    )
+
+    # Register per family: each Analysis lives in its parents' metamist project (which is the
+    # dataset owning the mother SG), so we can't batch across families that live in different
+    # datasets. cpg-flow's get_metamist().create_analysis handles the access-level suffix
+    # internally.
+    registration_jobs = []
+    for family in families:
+        registration_jobs.extend(
+            _create_analysis_registration_jobs(
+                families=[family],
+                gvcf_paths=gvcf_paths,
+                marker_paths=marker_paths,
+                synthesis_jobs=synthesis_jobs,
+                project=family.mother_sg.dataset.name,
+                job_attrs=job_attrs,
+            ),
+        )
+
+    return list(synthesis_jobs.values()) + registration_jobs

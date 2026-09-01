@@ -117,6 +117,7 @@ hail = ["hail"]
 # suppress the ARG002 "Unused method argument" warning in the stages.py file
 ## - we don't need generic cpg-flow arguments for every Stage, but need to fit the required method signature
 "src/cpg_seqr_loader/stages.py" = ["ARG002"]
+"src/cpg_seqr_loader/synthetic_proband_stages.py" = ["ARG002"]
 "src/cpg_seqr_loader/scripts/mt_to_es.py" = ["ANN202"]
 "src/cpg_seqr_loader/scripts/annotate_cohort.py" = ["E501"]
 
