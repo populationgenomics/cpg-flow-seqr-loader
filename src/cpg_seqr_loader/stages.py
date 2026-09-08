@@ -82,8 +82,15 @@ class DeleteCombinerTemp(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(required_stages=CombineGvcfsIntoVds)
-class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
+class CreateDenseMtFromVdsWithHailBase(stage.MultiCohortStage):
+    """Undecorated base holding the densify logic. See paired decorated wrapper below.
+
+    Split from the decorated stage so subclasses (e.g. CreateDenseMtFromVdsWithHailNoFragments
+    in synthetic_proband_stages.py) can inherit the logic and override extension points.
+    cpg-flow's @stage.stage decorator wraps its target in a function, which can't be
+    subclassed - so we register empty decorated wrappers over these base classes instead.
+    """
+
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
         """
         the MT and both shard_manifest files are Paths, so this stage will rerun if any of those are missing
@@ -137,6 +144,11 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
             job_attrs=self.get_job_attrs(multicohort),
         )
         return self.make_outputs(target=multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=CombineGvcfsIntoVds)
+class CreateDenseMtFromVdsWithHail(CreateDenseMtFromVdsWithHailBase):
+    """Standard densify stage - all logic lives in CreateDenseMtFromVdsWithHailBase."""
 
 
 @stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
@@ -436,11 +448,11 @@ class AnnotateCohort(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=AnnotateCohort)
-class SubsetMtToDatasetWithHail(stage.DatasetStage):
-    """
-    Subset the MT to a single dataset - or a subset of families within a dataset
-    Skips this stage if the MultiCohort has only one dataset
+class SubsetMtToDatasetWithHailBase(stage.DatasetStage):
+    """Undecorated base holding the subset logic. See paired decorated wrapper below.
+
+    Subset the MT to a single dataset - or a subset of families within a dataset.
+    Skips this stage if the MultiCohort has only one dataset.
     """
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path] | None:
@@ -499,15 +511,14 @@ class SubsetMtToDatasetWithHail(stage.DatasetStage):
         return self.make_outputs(dataset, data=outputs, jobs=job)
 
 
-@stage.stage(
-    required_stages=[
-        AnnotateCohort,
-        SubsetMtToDatasetWithHail,
-    ],
-    # analyses recorded to pass through to Metamist/other workflows
-    analysis_type='matrixtable',
-)
-class AnnotateDataset(stage.DatasetStage):
+@stage.stage(required_stages=AnnotateCohort)
+class SubsetMtToDatasetWithHail(SubsetMtToDatasetWithHailBase):
+    """Standard subset stage - all logic lives in SubsetMtToDatasetWithHailBase."""
+
+
+class AnnotateDatasetBase(stage.DatasetStage):
+    """Undecorated base holding the per-dataset annotation logic. See paired wrapper below."""
+
     def expected_outputs(self, dataset: targets.Dataset) -> Path:
         """
         Expected to generate a matrix table
@@ -558,6 +569,18 @@ class AnnotateDataset(stage.DatasetStage):
         return self.make_outputs(dataset, data=output, jobs=job)
 
 
+@stage.stage(
+    required_stages=[
+        AnnotateCohort,
+        SubsetMtToDatasetWithHail,
+    ],
+    # analyses recorded to pass through to Metamist/other workflows
+    analysis_type='matrixtable',
+)
+class AnnotateDataset(AnnotateDatasetBase):
+    """Standard per-dataset annotation stage - all logic lives in AnnotateDatasetBase."""
+
+
 @stage.stage(required_stages=[AnnotateDataset], analysis_type='custom', analysis_keys=['vcf'])
 class AnnotatedDatasetMtToVcf(stage.DatasetStage):
     """
@@ -597,16 +620,8 @@ class AnnotatedDatasetMtToVcf(stage.DatasetStage):
         return self.make_outputs(dataset, data=output, jobs=job)
 
 
-@stage.stage(
-    required_stages=[AnnotateDataset],
-    analysis_type='es-index',
-    analysis_keys=['done_flag'],
-    update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
-)
-class ExportMtAsEsIndex(stage.DatasetStage):
-    """
-    Create a Seqr index.
-    """
+class ExportMtAsEsIndexBase(stage.DatasetStage):
+    """Undecorated base holding the ES export logic. See paired decorated wrapper below."""
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, str | Path]:
         """
@@ -670,3 +685,13 @@ class ExportMtAsEsIndex(stage.DatasetStage):
         ExportMtAsEsIndexFromGlobalCallset in synthetic_proband_stages.py).
         """
         return inputs.as_str(target=dataset, stage=AnnotateDataset)
+
+
+@stage.stage(
+    required_stages=[AnnotateDataset],
+    analysis_type='es-index',
+    analysis_keys=['done_flag'],
+    update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
+)
+class ExportMtAsEsIndex(ExportMtAsEsIndexBase):
+    """Standard ES index export stage - all logic lives in ExportMtAsEsIndexBase."""

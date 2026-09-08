@@ -23,10 +23,10 @@ from cpg_seqr_loader.jobs.CombineGvcfsIntoVdsFromManifest import create_combiner
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandCombinerInputs import write_combiner_inputs
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandGvcfs import create_synthetic_gvcf_jobs
 from cpg_seqr_loader.stages import (
-    AnnotateDataset,
-    CreateDenseMtFromVdsWithHail,
-    ExportMtAsEsIndex,
-    SubsetMtToDatasetWithHail,
+    AnnotateDatasetBase,
+    CreateDenseMtFromVdsWithHailBase,
+    ExportMtAsEsIndexBase,
+    SubsetMtToDatasetWithHailBase,
 )
 
 
@@ -172,7 +172,7 @@ class CombineGvcfsIntoVdsFromManifest(stage.MultiCohortStage):
 
 
 @stage.stage(required_stages=CombineGvcfsIntoVdsFromManifest)
-class CreateDenseMtFromVdsWithHailNoFragments(CreateDenseMtFromVdsWithHail):
+class CreateDenseMtFromVdsWithHailNoFragments(CreateDenseMtFromVdsWithHailBase):
     """Densify variant for workflows that skip VQSR / VEP.
 
     Overrides the base class on two axes:
@@ -231,7 +231,7 @@ class AnnotateFromGlobalCallset(stage.MultiCohortStage):
 
 
 @stage.stage(required_stages=AnnotateFromGlobalCallset)
-class SubsetMtToDatasetFromGlobalCallset(SubsetMtToDatasetWithHail):
+class SubsetMtToDatasetFromGlobalCallset(SubsetMtToDatasetWithHailBase):
     """SubsetMtToDatasetWithHail variant that subsets from AnnotateFromGlobalCallset.
 
     Only kicks in when the synthetic workflow runs a multi-dataset multicohort or has
@@ -248,7 +248,7 @@ class SubsetMtToDatasetFromGlobalCallset(SubsetMtToDatasetWithHail):
     required_stages=[AnnotateFromGlobalCallset, SubsetMtToDatasetFromGlobalCallset],
     analysis_type='matrixtable',
 )
-class AnnotateDatasetFromGlobalCallset(AnnotateDataset):
+class AnnotateDatasetFromGlobalCallset(AnnotateDatasetBase):
     """AnnotateDataset variant that reads from the global-join stack.
 
     Single-dataset multicohorts with no only_families config read directly from
@@ -269,7 +269,7 @@ class AnnotateDatasetFromGlobalCallset(AnnotateDataset):
     analysis_keys=['done_flag'],
     update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
 )
-class ExportMtAsEsIndexFromGlobalCallset(ExportMtAsEsIndex):
+class ExportMtAsEsIndexFromGlobalCallset(ExportMtAsEsIndexBase):
     """ExportMtAsEsIndex variant sourced from the global-join AnnotateDataset variant."""
 
     def _get_annotated_mt_path(self, dataset: targets.Dataset, inputs: stage.StageInput) -> str:
