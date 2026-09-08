@@ -91,30 +91,31 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
 
         Needs a range of INFO fields to be present in the VCF
 
-        The sites-only VCF fragments feed VQSR / VEP in the standard workflow. Workflows that
-        bypass those steps (e.g. the synthetic-proband path that joins pre-computed annotations
-        from the global callset) can disable emission via the `combiner.emit_sites_only_vcf_fragments`
-        config flag, in which case the four VCF-related output keys are omitted.
+        The sites-only VCF fragments feed VQSR / VEP in the standard workflow. Subclasses that
+        bypass VQSR / VEP (see CreateDenseMtFromVdsWithHailNoFragments in
+        synthetic_proband_stages.py) override this method to omit the four VCF-related keys.
         """
         temp_prefix = self.tmp_prefix
 
-        outputs: dict = {
+        return {
             'mt': temp_prefix / f'{multicohort.name}.mt',
+            # write path for fragments of sites-only VCF (header-per-shard)
+            'hps_vcf_dir': str(temp_prefix / f'{multicohort.name}.vcf.bgz'),
+            # file containing the names of all fragments (header-per-shard)
+            'hps_shard_manifest': temp_prefix / f'{multicohort.name}.vcf.bgz' / SHARD_MANIFEST,
+            # write path for fragments of sites-only VCF (separate header)
+            'separate_header_vcf_dir': str(temp_prefix / f'{multicohort.name}_separate.vcf.bgz'),
+            # file containing the names of all fragments (separate header)
+            'separate_header_manifest': temp_prefix / f'{multicohort.name}_separate.vcf.bgz' / SHARD_MANIFEST,
         }
-        if config.config_retrieve(['combiner', 'emit_sites_only_vcf_fragments'], True):
-            outputs.update(
-                {
-                    # write path for fragments of sites-only VCF (header-per-shard)
-                    'hps_vcf_dir': str(temp_prefix / f'{multicohort.name}.vcf.bgz'),
-                    # file containing the names of all fragments (header-per-shard)
-                    'hps_shard_manifest': temp_prefix / f'{multicohort.name}.vcf.bgz' / SHARD_MANIFEST,
-                    # write path for fragments of sites-only VCF (separate header)
-                    'separate_header_vcf_dir': str(temp_prefix / f'{multicohort.name}_separate.vcf.bgz'),
-                    # file containing the names of all fragments (separate header)
-                    'separate_header_manifest': temp_prefix / f'{multicohort.name}_separate.vcf.bgz' / SHARD_MANIFEST,
-                }
-            )
-        return outputs
+
+    def _get_input_vds(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> str:
+        """Return the VDS path this stage densifies.
+
+        Subclasses can override to swap the upstream combiner (see
+        CreateDenseMtFromVdsWithHailNoFragments in synthetic_proband_stages.py).
+        """
+        return inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds')
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
@@ -128,7 +129,7 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
         )
 
         job = generate_densify_jobs(
-            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
+            input_vds=self._get_input_vds(multicohort, inputs),
             output_mt=outputs['mt'],
             output_sites_only=outputs.get('hps_vcf_dir'),
             output_separate_header=outputs.get('separate_header_vcf_dir'),

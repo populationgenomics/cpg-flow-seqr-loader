@@ -171,8 +171,26 @@ class CombineGvcfsIntoVdsFromManifest(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
+@stage.stage(required_stages=CombineGvcfsIntoVdsFromManifest)
+class CreateDenseMtFromVdsWithHailNoFragments(CreateDenseMtFromVdsWithHail):
+    """Densify variant for workflows that skip VQSR / VEP.
+
+    Overrides the base class on two axes:
+      - Reads the input VDS from the manifest-driven combiner instead of the standard one.
+      - Omits the four sites-only VCF-fragment outputs, which the base class emits to feed
+        VQSR / VEP downstream. This workflow joins pre-computed annotations from the global
+        callset instead, so the fragments are dead weight.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
+        return {'mt': self.tmp_prefix / f'{multicohort.name}.mt'}
+
+    def _get_input_vds(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> str:
+        return inputs.as_str(multicohort, CombineGvcfsIntoVdsFromManifest, 'vds')
+
+
 @stage.stage(
-    required_stages=[CreateDenseMtFromVdsWithHail],
+    required_stages=[CreateDenseMtFromVdsWithHailNoFragments],
     analysis_type='matrixtable',
 )
 class AnnotateFromGlobalCallset(stage.MultiCohortStage):
@@ -194,7 +212,7 @@ class AnnotateFromGlobalCallset(stage.MultiCohortStage):
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
-        input_mt = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHail, key='mt')
+        input_mt = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHailNoFragments, key='mt')
 
         global_mt_override = config.config_retrieve(['annotate_from_global_callset', 'source_mt'], None)
         if global_mt_override:
