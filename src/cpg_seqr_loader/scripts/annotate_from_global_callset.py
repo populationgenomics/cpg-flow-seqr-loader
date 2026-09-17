@@ -12,9 +12,10 @@ global MT to re-normalise it, we recover those mismatches by driver-side locus-w
 allele trim - cost is bounded by the (small) mismatch count, not by global MT size. The recovered
 rows are re-keyed to the global's non-minimal form so the annotation join lands.
 
-Invariant: after key recovery, every input row must exist in the global. If not, either
-create_synthetic_proband_gvcf.py has produced a variant no real sample carries, or temporal drift
-has moved the parental gVCFs beyond what the global captured.
+Invariant: every input row must exist in the global (directly or via trim-recovery). If any row
+can't be recovered, the recovery step raises loudly - either create_synthetic_proband_gvcf.py has
+produced a variant no real sample carries, or temporal drift has moved the parental gVCFs beyond
+what the global captured.
 """
 
 import argparse
@@ -39,11 +40,10 @@ def annotate_from_global_callset(
     global_rows = global_mt.rows()
 
     # Rewrite input keys to the global's form for rows whose only mismatch is
-    # trim-normalisation padding on the global side.
+    # trim-normalisation padding on the global side. Raises loudly if any input
+    # row can't be matched to a global row even after recovery - that's a real
+    # invariant violation (invented variant or temporal drift).
     input_mt = _recover_mismatched_keys_from_global(input_mt, global_rows)
-
-    # After recovery, any remaining unmatched rows are real invariant violations.
-    _assert_every_row_present_in_global(input_mt, global_rows)
 
     # Drop row annotations produced by densify - their AC/AN/AF etc. are computed over the
     # synthetic cohort and would be misleading. Global values replace them.
@@ -99,6 +99,7 @@ def _recover_mismatched_keys_from_global(
     )
 
     rewrites: list[dict] = []
+    unrecovered: list[tuple[str, int, str, str]] = []
     for row in missing_rows:
         contig = row.locus.contig
         pos = row.locus.position
@@ -110,6 +111,7 @@ def _recover_mismatched_keys_from_global(
             reference_genome='GRCh38',
         )
         candidates = global_rows.filter(window.contains(global_rows.locus)).select().collect()
+        matched = False
         for cand in candidates:
             if cand.locus.contig != contig:
                 continue
@@ -130,11 +132,25 @@ def _recover_mismatched_keys_from_global(
                         'new_alleles': list(cand.alleles),
                     },
                 )
+                matched = True
                 break
+        if not matched:
+            unrecovered.append((contig, pos, ref, alt))
 
     loguru.logger.info(
         f'Recovered keys for {len(rewrites)}/{len(missing_rows)} unmatched rows via trim-normalisation',
     )
+
+    if unrecovered:
+        example_strs = [f'{c}:{p} {r}>{a}' for c, p, r, a in unrecovered[:10]]
+        raise ValueError(
+            f'AnnotateFromGlobalCallset invariant violation: {len(unrecovered)} variant rows in the '
+            f'input MT do not exist in the global annotate_cohort.mt, even after key-recovery via '
+            f'trim-normalisation. Either create_synthetic_proband_gvcf.py has produced variants no '
+            f'real sample carries, or temporal drift has moved the parental gVCFs beyond what the '
+            f'global captured. Investigate one of the unrecovered variants in the parental gVCFs.\n'
+            f'First {len(example_strs)} unrecovered variants:\n  ' + '\n  '.join(example_strs),
+        )
 
     if not rewrites:
         return input_mt
@@ -180,29 +196,6 @@ def _recover_mismatched_keys_from_global(
     )
     input_mt = input_mt.key_rows_by(locus=input_mt.new_locus_tmp, alleles=input_mt.new_alleles_tmp)
     return input_mt.drop('key_rewrite_tmp', 'new_locus_tmp', 'new_alleles_tmp')
-
-
-def _assert_every_row_present_in_global(input_mt: hl.MatrixTable, global_rows: hl.Table) -> None:
-    """Fail loud if the input MT (post key-recovery) has variants missing from the global callset.
-
-    Uses head(10) as a cheap short-circuit - if there are no misses, we skip the full count().
-    """
-    missing = input_mt.rows().anti_join(global_rows)
-    missing_examples = missing.head(10).collect()
-
-    if not missing_examples:
-        return
-
-    missing_count = missing.count()
-    example_strs = [f'{row.locus}:{row.alleles[0]}>{",".join(row.alleles[1:])}' for row in missing_examples]
-    raise ValueError(
-        f'AnnotateFromGlobalCallset invariant violation: {missing_count} variant rows in the '
-        f'input MT do not exist in the global annotate_cohort.mt, even after key-recovery via '
-        f'trim-normalisation. Either create_synthetic_proband_gvcf.py has produced variants no '
-        f'real sample carries, or temporal drift has moved the parental gVCFs beyond what the '
-        f'global captured. Investigate one of the missing variants in the parental gVCFs.\n'
-        f'First {len(example_strs)} missing variants:\n  ' + '\n  '.join(example_strs),
-    )
 
 
 def cli_main() -> None:
