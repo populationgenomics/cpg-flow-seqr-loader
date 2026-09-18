@@ -212,18 +212,18 @@ def _annotate_via_split_union(
 
     # For the tiny subset that needs re-keying: coalesce to a single partition so the
     # subsequent sort works on a small compact input, then re-key to the global's form.
-    needs_rewrite = (
-        needs_rewrite.naive_coalesce(1)
-        .key_rows_by(
-            locus=hl.locus(
-                needs_rewrite.rewrite_tmp.new_contig,
-                needs_rewrite.rewrite_tmp.new_pos,
-                reference_genome='GRCh38',
-            ),
-            alleles=needs_rewrite.rewrite_tmp.new_alleles,
-        )
-        .drop('rewrite_tmp')
-    )
+    # Bind naive_coalesce to a variable before referencing rewrite_tmp - chaining these
+    # calls binds the field expressions to the pre-coalesce MT identity, and Hail refuses
+    # to mix expressions from different-identity sources even when the schema matches.
+    needs_rewrite = needs_rewrite.naive_coalesce(1)
+    needs_rewrite = needs_rewrite.key_rows_by(
+        locus=hl.locus(
+            needs_rewrite.rewrite_tmp.new_contig,
+            needs_rewrite.rewrite_tmp.new_pos,
+            reference_genome='GRCh38',
+        ),
+        alleles=needs_rewrite.rewrite_tmp.new_alleles,
+    ).drop('rewrite_tmp')
     newly_annotated = needs_rewrite.annotate_rows(**global_rows[needs_rewrite.row_key])
 
     # Both halves are sorted by (locus, alleles). union_rows does a linear merge over sorted
