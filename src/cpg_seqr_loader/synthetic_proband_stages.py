@@ -14,12 +14,20 @@ file - see PR review discussion. Only the synthetic-proband workflow entry point
 
 import hashlib
 
-from cpg_flow import stage, targets
-from cpg_utils import Path
+from cpg_flow import stage, targets, workflow
+from cpg_utils import Path, config
 
 from cpg_seqr_loader import utils
+from cpg_seqr_loader.jobs.AnnotateFromGlobalCallset import create_annotate_from_global_callset_job
+from cpg_seqr_loader.jobs.CombineGvcfsIntoVdsFromManifest import create_combiner_from_manifest_jobs
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandCombinerInputs import write_combiner_inputs
 from cpg_seqr_loader.jobs.GenerateSyntheticProbandGvcfs import create_synthetic_gvcf_jobs
+from cpg_seqr_loader.stages import (
+    AnnotateDatasetBase,
+    CreateDenseMtFromVdsWithHailBase,
+    ExportMtAsEsIndexBase,
+    SubsetMtToDatasetWithHailBase,
+)
 
 
 @stage.stage
@@ -125,3 +133,149 @@ class GenerateSyntheticProbandCombinerInputs(stage.MultiCohortStage):
             output_manifest=outputs['gvcfs_list'],
         )
         return self.make_outputs(multicohort, data=outputs, jobs=[])
+
+
+@stage.stage(
+    analysis_type='combiner',
+    analysis_keys=['vds'],
+    required_stages=[GenerateSyntheticProbandCombinerInputs],
+)
+class CombineGvcfsIntoVdsFromManifest(stage.MultiCohortStage):
+    """Combine the synthetic-trio gVCF manifest into an isolated VDS.
+
+    Rebuilds from scratch every run using the manifest produced by
+    GenerateSyntheticProbandCombinerInputs. The VDS is scoped to this cohort so synthetic
+    proband data never contaminates AC/AN/AF in the global callset.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, Path | str]:
+        return {
+            'vds': self.prefix / f'{multicohort.name}.vds',
+            'tmp': str(self.tmp_prefix / 'temp_dir'),
+        }
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(multicohort)
+        manifest_path = inputs.as_path(
+            target=multicohort,
+            stage=GenerateSyntheticProbandCombinerInputs,
+            key='gvcfs_list',
+        )
+        job = create_combiner_from_manifest_jobs(
+            manifest_path=manifest_path,
+            output_vds=outputs['vds'],
+            combiner_plan=self.tmp_prefix / 'combiner_plan.json',
+            temp_dir_string=outputs['tmp'],
+            job_attrs=self.get_job_attrs(multicohort),
+        )
+        return self.make_outputs(multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=CombineGvcfsIntoVdsFromManifest)
+class CreateDenseMtFromVdsWithHailNoFragments(CreateDenseMtFromVdsWithHailBase):
+    """Densify variant for workflows that skip VQSR / VEP.
+
+    Overrides the base class on two axes:
+      - Reads the input VDS from the manifest-driven combiner instead of the standard one.
+      - Omits the four sites-only VCF-fragment outputs, which the base class emits to feed
+        VQSR / VEP downstream. This workflow joins pre-computed annotations from the global
+        callset instead, so the fragments are dead weight.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
+        return {'mt': self.tmp_prefix / f'{multicohort.name}.mt'}
+
+    def _get_input_vds(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> str:
+        return inputs.as_str(multicohort, CombineGvcfsIntoVdsFromManifest, 'vds')
+
+
+@stage.stage(
+    required_stages=[CreateDenseMtFromVdsWithHailNoFragments],
+    analysis_type='matrixtable',
+)
+class AnnotateFromGlobalCallset(stage.MultiCohortStage):
+    """Attach row annotations from the standard seqr-loader's annotate_cohort.mt to this cohort.
+
+    Replaces the standard AnnotateCohort stage for workflows that must skip the annotation
+    stack (VEP / VQSR / gnomAD / clinvar) because the cohort contains synthetic samples that
+    would pollute the resulting population stats. AC/AN/AF, VQSR fields, VEP consequences,
+    reference joins, and clinvar are all copied from the global MT by (locus, alleles) join.
+
+    The global MT path is resolved from metamist via query_for_latest_annotate_cohort_mt,
+    unless overridden by config key `annotate_from_global_callset.source_mt`. Both the
+    metamist query and the resolved path must succeed at DAG-planning time - the stage
+    fails loudly rather than let the pipeline start with a missing or stale source.
+    """
+
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> Path:
+        return self.prefix / 'annotate_cohort.mt'
+
+    def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(multicohort)
+        input_mt = inputs.as_str(target=multicohort, stage=CreateDenseMtFromVdsWithHailNoFragments, key='mt')
+
+        global_mt_override = config.config_retrieve(['annotate_from_global_callset', 'source_mt'], None)
+        if global_mt_override:
+            global_mt = str(global_mt_override)
+        else:
+            source_dataset = config.config_retrieve(['annotate_from_global_callset', 'source_dataset'], 'seqr')
+            global_mt = utils.query_for_latest_annotate_cohort_mt(source_dataset)
+
+        # Checkpoint under tmp_prefix so it's cleaned up by the bucket lifecycle rules -
+        # we don't want stale checkpoints lingering in main after successful runs.
+        checkpoint_path = str(self.tmp_prefix / 'annotate_from_global_callset_input_checkpoint.mt')
+
+        job = create_annotate_from_global_callset_job(
+            input_mt=input_mt,
+            global_mt=global_mt,
+            output_mt=outputs,
+            checkpoint_path=checkpoint_path,
+            job_attrs=self.get_job_attrs(multicohort),
+        )
+        return self.make_outputs(multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=AnnotateFromGlobalCallset)
+class SubsetMtToDatasetFromGlobalCallset(SubsetMtToDatasetWithHailBase):
+    """SubsetMtToDatasetWithHail variant that subsets from AnnotateFromGlobalCallset.
+
+    Only kicks in when the synthetic workflow runs a multi-dataset multicohort or has
+    only_families set on a dataset (see AnnotateDataset._get_cohort_mt for the branch).
+    Otherwise the downstream AnnotateDatasetFromGlobalCallset reads directly from
+    AnnotateFromGlobalCallset and this stage is skipped.
+    """
+
+    def _get_cohort_mt(self, inputs: stage.StageInput) -> Path:
+        return inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateFromGlobalCallset)
+
+
+@stage.stage(
+    required_stages=[AnnotateFromGlobalCallset, SubsetMtToDatasetFromGlobalCallset],
+    analysis_type='matrixtable',
+)
+class AnnotateDatasetFromGlobalCallset(AnnotateDatasetBase):
+    """AnnotateDataset variant that reads from the global-join stack.
+
+    Single-dataset multicohorts with no only_families config read directly from
+    AnnotateFromGlobalCallset. Multi-dataset or family-filtered runs fall through to
+    SubsetMtToDatasetFromGlobalCallset, mirroring the base class's branch structure.
+    """
+
+    def _get_cohort_mt(self, dataset: targets.Dataset, inputs: stage.StageInput) -> Path:
+        family_sgs = utils.get_family_sequencing_groups(dataset)
+        if len(workflow.get_multicohort().get_datasets()) == 1 and family_sgs is None:
+            return inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateFromGlobalCallset)
+        return inputs.as_path(target=dataset, stage=SubsetMtToDatasetFromGlobalCallset, key='mt')
+
+
+@stage.stage(
+    required_stages=[AnnotateDatasetFromGlobalCallset],
+    analysis_type='es-index',
+    analysis_keys=['done_flag'],
+    update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
+)
+class ExportMtAsEsIndexFromGlobalCallset(ExportMtAsEsIndexBase):
+    """ExportMtAsEsIndex variant sourced from the global-join AnnotateDataset variant."""
+
+    def _get_annotated_mt_path(self, dataset: targets.Dataset, inputs: stage.StageInput) -> str:
+        return inputs.as_str(target=dataset, stage=AnnotateDatasetFromGlobalCallset)

@@ -9,8 +9,8 @@ if TYPE_CHECKING:
 def generate_densify_jobs(
     input_vds: str,
     output_mt: Path,
-    output_sites_only: str,
-    output_separate_header: str,
+    output_sites_only: str | None,
+    output_separate_header: str | None,
     checkpoint: str,
     job_attrs: dict[str, str],
 ) -> 'BashJob':
@@ -19,14 +19,18 @@ def generate_densify_jobs(
 
     job.spot(False)
 
+    # Keep conditionally-empty args on the same line as a real arg, otherwise a
+    # bare `--checkpoint <path> \` followed by a whitespace-only continuation
+    # line breaks bash parsing when both optional args are absent.
+    sites_only_arg = f'--sites_only {output_sites_only!s}' if output_sites_only else ''
+    separate_header_arg = f'--separate_header {output_separate_header!s}' if output_separate_header else ''
+
     job.command(
         f"""
         python -m cpg_seqr_loader.scripts.densify_VDS_to_MT \\
             --input {input_vds!s} \\
             --output {output_mt!s} \\
-            --checkpoint {checkpoint!s} \\
-            --sites_only {output_sites_only!s} \\
-            --separate_header {output_separate_header!s}
+            --checkpoint {checkpoint!s} {sites_only_arg} {separate_header_arg}
         """
     )
 
