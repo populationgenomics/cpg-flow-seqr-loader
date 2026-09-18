@@ -11,12 +11,17 @@ input_mt and global went through independent combiner runs. Rather than shuffle 
 global MT to re-normalise it, we recover those mismatches by driver-side locus-window search plus
 allele trim - cost is bounded by the (small) mismatch count, not by global MT size.
 
-To avoid a full-MT distributed sort (which hangs on data skew for genome-scale MTs), we split the
-input into:
-  - "already_ok": rows whose exact keys already match global - joined directly, no re-key.
-  - "needs_rewrite": tiny subset (~100s of rows) that need re-keying to the global's non-minimal
-    form. Coalesced to one partition first, then re-keyed - trivial shuffle at that scale.
-Then union_rows the two halves. Both are sorted, so union_rows does a linear merge.
+The recovered mismatches are handled via an "effective lookup key" computed per row: for the
+~124 recovered rows the global's non-minimal (locus, alleles) is used to fetch annotations; for
+every other row the original key is used. Global annotations still land on every input row, but
+the input MT is never re-keyed - avoiding distributed sorts that Hail Query-on-Batch struggles
+with at genome scale (workers are hardcoded preemptible, so shuffles for a 10M+-row MT keep
+failing with "zero errors in partition outputs" as workers get reclaimed mid-sort).
+
+Consequence: the output MT keeps min-rep keys throughout, including for the 124 recovered rows.
+Those variants appear in seqr under min-rep form rather than the global's non-minimal padding.
+This is arguably the more canonical representation (matches ClinVar / gnomAD) and no variants
+are lost.
 
 Invariant: every input row must exist in the global (directly or via trim-recovery). If any row
 can't be recovered, the recovery step raises loudly - either create_synthetic_proband_gvcf.py has
@@ -54,7 +59,7 @@ def annotate_from_global_callset(
     rewrite_ht = _build_rewrite_table(input_mt, global_rows)
 
     loguru.logger.info('Joining global row annotations onto input MT')
-    annotated_mt = _annotate_via_split_union(input_mt, global_rows, rewrite_ht)
+    annotated_mt = _annotate_via_effective_key(input_mt, global_rows, rewrite_ht)
 
     global_metadata = global_mt.index_globals()
     annotated_mt = annotated_mt.annotate_globals(
@@ -178,18 +183,25 @@ def _build_rewrite_table(
     )
 
 
-def _annotate_via_split_union(
+def _annotate_via_effective_key(
     input_mt: hl.MatrixTable,
     global_rows: hl.Table,
     rewrite_ht: hl.Table | None,
 ) -> hl.MatrixTable:
-    """Join global row annotations onto input_mt without re-keying the whole MT.
+    """Join global row annotations onto input_mt without re-keying it.
 
-    If no rewrites are needed, a direct annotate_rows suffices. Otherwise we split into two
-    halves - one that matches global directly (kept at its original keys, no re-key) and one
-    that needs re-keying (~100s of rows, tiny sort) - annotate each, then union_rows.
+    If no rewrites are needed, a direct annotate_rows suffices. Otherwise we compute an
+    "effective lookup key" per row (rewrite -> global's non-minimal (locus, alleles) for
+    the ~124 rewritten rows; original key for everything else) and index global_rows by
+    that computed key. Global annotations still land on every input row - but the input MT
+    is never re-keyed and no union is required.
 
-    Avoids the full-MT distributed sort that caused workers to hang on data skew.
+    Consequence: the output MT keeps the input's (min-rep) keys throughout, including for
+    the recovered rows. Seqr will index those 124 variants under min-rep keys rather than
+    the global's non-minimal padding. Given Hail Query-on-Batch spawns preemptible workers
+    (hardcoded, not overridable) and the alternative distributed-sort approaches kept
+    failing on preemption, min-rep output is the pragmatic choice - it also matches the
+    canonical representation used by ClinVar, gnomAD, and most other annotation sources.
     """
     if rewrite_ht is None:
         return input_mt.annotate_rows(**global_rows[input_mt.row_key])
@@ -202,33 +214,29 @@ def _annotate_via_split_union(
             input_mt.alleles[1],
         ],
     )
-
-    # Split into rows that match global directly vs rows that need re-keying.
-    already_ok = input_mt.filter_rows(~hl.is_defined(input_mt.rewrite_tmp)).drop('rewrite_tmp')
-    needs_rewrite = input_mt.filter_rows(hl.is_defined(input_mt.rewrite_tmp))
-
-    # Direct join for the bulk of rows - no re-key, keys already match global.
-    already_annotated = already_ok.annotate_rows(**global_rows[already_ok.row_key])
-
-    # For the tiny subset that needs re-keying: coalesce to a single partition so the
-    # subsequent sort works on a small compact input, then re-key to the global's form.
-    # Bind naive_coalesce to a variable before referencing rewrite_tmp - chaining these
-    # calls binds the field expressions to the pre-coalesce MT identity, and Hail refuses
-    # to mix expressions from different-identity sources even when the schema matches.
-    needs_rewrite = needs_rewrite.naive_coalesce(1)
-    needs_rewrite = needs_rewrite.key_rows_by(
-        locus=hl.locus(
-            needs_rewrite.rewrite_tmp.new_contig,
-            needs_rewrite.rewrite_tmp.new_pos,
-            reference_genome='GRCh38',
+    input_mt = input_mt.annotate_rows(
+        lookup_locus_tmp=hl.if_else(
+            hl.is_defined(input_mt.rewrite_tmp),
+            hl.locus(
+                input_mt.rewrite_tmp.new_contig,
+                input_mt.rewrite_tmp.new_pos,
+                reference_genome='GRCh38',
+            ),
+            input_mt.locus,
         ),
-        alleles=needs_rewrite.rewrite_tmp.new_alleles,
-    ).drop('rewrite_tmp')
-    newly_annotated = needs_rewrite.annotate_rows(**global_rows[needs_rewrite.row_key])
+        lookup_alleles_tmp=hl.if_else(
+            hl.is_defined(input_mt.rewrite_tmp),
+            input_mt.rewrite_tmp.new_alleles,
+            input_mt.alleles,
+        ),
+    )
 
-    # Both halves are sorted by (locus, alleles). union_rows does a linear merge over sorted
-    # inputs - no distributed sort required.
-    return already_annotated.union_rows(newly_annotated)
+    # Index global_rows by the computed lookup key. No re-key, no shuffle - Hail evaluates
+    # global_rows[<expr>, <expr>] as a keyed lookup and delivers the matching row struct.
+    annotated_mt = input_mt.annotate_rows(
+        **global_rows[input_mt.lookup_locus_tmp, input_mt.lookup_alleles_tmp],
+    )
+    return annotated_mt.drop('rewrite_tmp', 'lookup_locus_tmp', 'lookup_alleles_tmp')
 
 
 def cli_main() -> None:
