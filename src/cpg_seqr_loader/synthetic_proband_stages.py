@@ -221,10 +221,15 @@ class AnnotateFromGlobalCallset(stage.MultiCohortStage):
             source_dataset = config.config_retrieve(['annotate_from_global_callset', 'source_dataset'], 'seqr')
             global_mt = utils.query_for_latest_annotate_cohort_mt(source_dataset)
 
+        # Checkpoint under tmp_prefix so it's cleaned up by the bucket lifecycle rules -
+        # we don't want stale checkpoints lingering in main after successful runs.
+        checkpoint_path = str(self.tmp_prefix / 'annotate_from_global_callset_input_checkpoint.mt')
+
         job = create_annotate_from_global_callset_job(
             input_mt=input_mt,
             global_mt=global_mt,
             output_mt=outputs,
+            checkpoint_path=checkpoint_path,
             job_attrs=self.get_job_attrs(multicohort),
         )
         return self.make_outputs(multicohort, data=outputs, jobs=job)

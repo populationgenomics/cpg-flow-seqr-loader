@@ -13,15 +13,18 @@ allele trim - cost is bounded by the (small) mismatch count, not by global MT si
 
 The recovered mismatches are handled via an "effective lookup key" computed per row: for the
 ~124 recovered rows the global's non-minimal (locus, alleles) is used to fetch annotations; for
-every other row the original key is used. Global annotations still land on every input row, but
-the input MT is never re-keyed - avoiding distributed sorts that Hail Query-on-Batch struggles
-with at genome scale (workers are hardcoded preemptible, so shuffles for a 10M+-row MT keep
-failing with "zero errors in partition outputs" as workers get reclaimed mid-sort).
+every other row the original key is used. Global annotations still land on every input row and
+the input MT is never re-keyed.
 
 Consequence: the output MT keeps min-rep keys throughout, including for the 124 recovered rows.
 Those variants appear in seqr under min-rep form rather than the global's non-minimal padding.
 This is arguably the more canonical representation (matches ClinVar / gnomAD) and no variants
 are lost.
+
+Before the join we checkpoint the input MT (with the added lookup-key fields) so QoB doesn't
+have to fuse the entire pipeline into one big shuffle and so partial-failure recovery is cheap.
+QoB resourcing (driver_cores / worker_cores) is exposed via config keys under
+`annotate_from_global_callset` for the retry ladder (start 2/1, then 2/2, then 4/2).
 
 Invariant: every input row must exist in the global (directly or via trim-recovery). If any row
 can't be recovered, the recovery step raises loudly - either create_synthetic_proband_gvcf.py has
@@ -32,7 +35,7 @@ what the global captured.
 import argparse
 
 import loguru
-from cpg_utils import hail_batch
+from cpg_utils import config, hail_batch
 
 import hail as hl
 
@@ -41,6 +44,7 @@ def annotate_from_global_callset(
     input_mt_path: str,
     global_mt_path: str,
     output_mt_path: str,
+    checkpoint_path: str,
 ) -> None:
     """Row-join the input densified MT against a global annotate_cohort.mt and write the result."""
     loguru.logger.info(f'Reading input MT: {input_mt_path}')
@@ -59,7 +63,7 @@ def annotate_from_global_callset(
     rewrite_ht = _build_rewrite_table(input_mt, global_rows)
 
     loguru.logger.info('Joining global row annotations onto input MT')
-    annotated_mt = _annotate_via_effective_key(input_mt, global_rows, rewrite_ht)
+    annotated_mt = _annotate_via_effective_key(input_mt, global_rows, rewrite_ht, checkpoint_path)
 
     global_metadata = global_mt.index_globals()
     annotated_mt = annotated_mt.annotate_globals(
@@ -187,21 +191,17 @@ def _annotate_via_effective_key(
     input_mt: hl.MatrixTable,
     global_rows: hl.Table,
     rewrite_ht: hl.Table | None,
+    checkpoint_path: str,
 ) -> hl.MatrixTable:
     """Join global row annotations onto input_mt without re-keying it.
 
-    If no rewrites are needed, a direct annotate_rows suffices. Otherwise we compute an
-    "effective lookup key" per row (rewrite -> global's non-minimal (locus, alleles) for
-    the ~124 rewritten rows; original key for everything else) and index global_rows by
-    that computed key. Global annotations still land on every input row - but the input MT
-    is never re-keyed and no union is required.
+    Computes an "effective lookup key" per row (rewrite -> global's non-minimal (locus,
+    alleles) for the ~124 rewritten rows; original key for everything else) and indexes
+    global_rows by that computed key. Output MT keeps the input's min-rep keys throughout.
 
-    Consequence: the output MT keeps the input's (min-rep) keys throughout, including for
-    the recovered rows. Seqr will index those 124 variants under min-rep keys rather than
-    the global's non-minimal padding. Given Hail Query-on-Batch spawns preemptible workers
-    (hardcoded, not overridable) and the alternative distributed-sort approaches kept
-    failing on preemption, min-rep output is the pragmatic choice - it also matches the
-    canonical representation used by ClinVar, gnomAD, and most other annotation sources.
+    Before the final annotation join, we checkpoint the input MT with its lookup-key fields
+    added. Two reasons (per Ed): (1) makes recovery cheap if the join step fails, (2) splits
+    Hail's query graph so QoB doesn't have to fuse the entire pipeline into one shuffle.
     """
     if rewrite_ht is None:
         return input_mt.annotate_rows(**global_rows[input_mt.row_key])
@@ -231,8 +231,11 @@ def _annotate_via_effective_key(
         ),
     )
 
-    # Index global_rows by the computed lookup key. No re-key, no shuffle - Hail evaluates
-    # global_rows[<expr>, <expr>] as a keyed lookup and delivers the matching row struct.
+    loguru.logger.info(f'Checkpointing input MT with lookup keys to {checkpoint_path}')
+    input_mt = input_mt.checkpoint(checkpoint_path, overwrite=True)
+
+    # Index global_rows by the computed lookup key. Hail evaluates global_rows[<expr>, <expr>]
+    # as a keyed lookup and delivers the matching row struct.
     annotated_mt = input_mt.annotate_rows(
         **global_rows[input_mt.lookup_locus_tmp, input_mt.lookup_alleles_tmp],
     )
@@ -244,13 +247,20 @@ def cli_main() -> None:
     parser.add_argument('--input', required=True, help='Path to the densified input MT')
     parser.add_argument('--global_mt', required=True, help='Path to the global annotate_cohort.mt to join against')
     parser.add_argument('--output', required=True, help='Path to write the annotated MT')
+    parser.add_argument('--checkpoint', required=True, help='Path to checkpoint the input MT before the join')
     args = parser.parse_args()
 
-    hail_batch.init_batch()
+    # driver_cores + worker_cores tune QoB resourcing for the shuffle-heavy join step.
+    # Defaults per Ed's guidance for large-MT joins; override via config for retry ladder.
+    hail_batch.init_batch(
+        driver_cores=config.config_retrieve(['annotate_from_global_callset', 'driver_cores'], 2),
+        worker_cores=config.config_retrieve(['annotate_from_global_callset', 'worker_cores'], 1),
+    )
     annotate_from_global_callset(
         input_mt_path=args.input,
         global_mt_path=args.global_mt,
         output_mt_path=args.output,
+        checkpoint_path=args.checkpoint,
     )
 
 
