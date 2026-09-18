@@ -9,8 +9,14 @@ Some input_mt rows fail exact (locus, alleles) match against the global because 
 sparse_split_multi (in densify_VDS_to_MT) leaves non-minimal padding on split alleles, and the
 input_mt and global went through independent combiner runs. Rather than shuffle the (very large)
 global MT to re-normalise it, we recover those mismatches by driver-side locus-window search plus
-allele trim - cost is bounded by the (small) mismatch count, not by global MT size. The recovered
-rows are re-keyed to the global's non-minimal form so the annotation join lands.
+allele trim - cost is bounded by the (small) mismatch count, not by global MT size.
+
+To avoid a full-MT distributed sort (which hangs on data skew for genome-scale MTs), we split the
+input into:
+  - "already_ok": rows whose exact keys already match global - joined directly, no re-key.
+  - "needs_rewrite": tiny subset (~100s of rows) that need re-keying to the global's non-minimal
+    form. Coalesced to one partition first, then re-keyed - trivial shuffle at that scale.
+Then union_rows the two halves. Both are sorted, so union_rows does a linear merge.
 
 Invariant: every input row must exist in the global (directly or via trim-recovery). If any row
 can't be recovered, the recovery step raises loudly - either create_synthetic_proband_gvcf.py has
@@ -39,18 +45,16 @@ def annotate_from_global_callset(
     global_mt = hl.read_matrix_table(global_mt_path)
     global_rows = global_mt.rows()
 
-    # Rewrite input keys to the global's form for rows whose only mismatch is
-    # trim-normalisation padding on the global side. Raises loudly if any input
-    # row can't be matched to a global row even after recovery - that's a real
-    # invariant violation (invented variant or temporal drift).
-    input_mt = _recover_mismatched_keys_from_global(input_mt, global_rows)
-
     # Drop row annotations produced by densify - their AC/AN/AF etc. are computed over the
     # synthetic cohort and would be misleading. Global values replace them.
     input_mt = input_mt.drop('info', 'site_dp', 'ANS')
 
+    # Find rewrites for rows whose keys don't exact-match global. Raises loudly if any row is
+    # unrecoverable (invented variant or temporal drift beyond the global's build).
+    rewrite_ht = _build_rewrite_table(input_mt, global_rows)
+
     loguru.logger.info('Joining global row annotations onto input MT')
-    annotated_mt = input_mt.annotate_rows(**global_rows[input_mt.row_key])
+    annotated_mt = _annotate_via_split_union(input_mt, global_rows, rewrite_ht)
 
     global_metadata = global_mt.index_globals()
     annotated_mt = annotated_mt.annotate_globals(
@@ -75,16 +79,20 @@ def _trim_alleles(pos: int, ref: str, alt: str) -> tuple[int, str, str]:
     return pos + shift, ref, alt
 
 
-def _recover_mismatched_keys_from_global(
+def _build_rewrite_table(
     input_mt: hl.MatrixTable,
     global_rows: hl.Table,
     window_bp: int = 50,
-) -> hl.MatrixTable:
-    """Rewrite input_mt row keys that fail exact-match against global to the global's own key.
+) -> hl.Table | None:
+    """Find rewrites for input_mt rows that fail exact-match against global.
 
     For each input row not in global, search nearby global rows (locus +/- window_bp), trim their
-    alleles common-bases-style, and check if any trimmed form matches the input row's key. If so,
-    the input row is re-keyed to the global's (non-minimal) key so annotate_rows will land.
+    alleles common-bases-style, and find one whose trimmed form matches the input row's key.
+    Returns a keyed Table mapping (orig_contig, orig_pos, orig_ref, orig_alt) -> new (contig, pos,
+    alleles). Returns None if no rows need rewriting.
+
+    Raises ValueError if any row is unrecoverable - the workflow must not silently drop rows the
+    user expected to appear in seqr.
 
     The recovery walk is driver-side but bounded by the (small) mismatch count. Each per-mismatch
     lookup uses the global's row-key partition index, so cost is O(mismatches), not O(global size).
@@ -92,7 +100,7 @@ def _recover_mismatched_keys_from_global(
     missing_rows = input_mt.rows().anti_join(global_rows).select().collect()
     if not missing_rows:
         loguru.logger.info('All input MT rows exact-match global - no key recovery needed')
-        return input_mt
+        return None
 
     loguru.logger.info(
         f'Attempting key recovery via locus-window search for {len(missing_rows)} unmatched rows',
@@ -153,10 +161,9 @@ def _recover_mismatched_keys_from_global(
         )
 
     if not rewrites:
-        return input_mt
+        return None
 
-    # Broadcast the rewrite table and use it to re-key the affected rows.
-    rewrite_ht = hl.Table.parallelize(
+    return hl.Table.parallelize(
         rewrites,
         schema=hl.tstruct(
             orig_contig=hl.tstr,
@@ -170,32 +177,58 @@ def _recover_mismatched_keys_from_global(
         key=['orig_contig', 'orig_pos', 'orig_ref', 'orig_alt'],
     )
 
+
+def _annotate_via_split_union(
+    input_mt: hl.MatrixTable,
+    global_rows: hl.Table,
+    rewrite_ht: hl.Table | None,
+) -> hl.MatrixTable:
+    """Join global row annotations onto input_mt without re-keying the whole MT.
+
+    If no rewrites are needed, a direct annotate_rows suffices. Otherwise we split into two
+    halves - one that matches global directly (kept at its original keys, no re-key) and one
+    that needs re-keying (~100s of rows, tiny sort) - annotate each, then union_rows.
+
+    Avoids the full-MT distributed sort that caused workers to hang on data skew.
+    """
+    if rewrite_ht is None:
+        return input_mt.annotate_rows(**global_rows[input_mt.row_key])
+
     input_mt = input_mt.annotate_rows(
-        key_rewrite_tmp=rewrite_ht[
+        rewrite_tmp=rewrite_ht[
             input_mt.locus.contig,
             input_mt.locus.position,
             input_mt.alleles[0],
             input_mt.alleles[1],
         ],
     )
-    input_mt = input_mt.annotate_rows(
-        new_locus_tmp=hl.if_else(
-            hl.is_defined(input_mt.key_rewrite_tmp),
-            hl.locus(
-                input_mt.key_rewrite_tmp.new_contig,
-                input_mt.key_rewrite_tmp.new_pos,
+
+    # Split into rows that match global directly vs rows that need re-keying.
+    already_ok = input_mt.filter_rows(~hl.is_defined(input_mt.rewrite_tmp)).drop('rewrite_tmp')
+    needs_rewrite = input_mt.filter_rows(hl.is_defined(input_mt.rewrite_tmp))
+
+    # Direct join for the bulk of rows - no re-key, keys already match global.
+    already_annotated = already_ok.annotate_rows(**global_rows[already_ok.row_key])
+
+    # For the tiny subset that needs re-keying: coalesce to a single partition so the
+    # subsequent sort works on a small compact input, then re-key to the global's form.
+    needs_rewrite = (
+        needs_rewrite.naive_coalesce(1)
+        .key_rows_by(
+            locus=hl.locus(
+                needs_rewrite.rewrite_tmp.new_contig,
+                needs_rewrite.rewrite_tmp.new_pos,
                 reference_genome='GRCh38',
             ),
-            input_mt.locus,
-        ),
-        new_alleles_tmp=hl.if_else(
-            hl.is_defined(input_mt.key_rewrite_tmp),
-            input_mt.key_rewrite_tmp.new_alleles,
-            input_mt.alleles,
-        ),
+            alleles=needs_rewrite.rewrite_tmp.new_alleles,
+        )
+        .drop('rewrite_tmp')
     )
-    input_mt = input_mt.key_rows_by(locus=input_mt.new_locus_tmp, alleles=input_mt.new_alleles_tmp)
-    return input_mt.drop('key_rewrite_tmp', 'new_locus_tmp', 'new_alleles_tmp')
+    newly_annotated = needs_rewrite.annotate_rows(**global_rows[needs_rewrite.row_key])
+
+    # Both halves are sorted by (locus, alleles). union_rows does a linear merge over sorted
+    # inputs - no distributed sort required.
+    return already_annotated.union_rows(newly_annotated)
 
 
 def cli_main() -> None:
