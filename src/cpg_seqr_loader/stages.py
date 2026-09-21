@@ -82,28 +82,47 @@ class DeleteCombinerTemp(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=output, jobs=job)
 
 
-@stage.stage(required_stages=CombineGvcfsIntoVds)
-class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
+class CreateDenseMtFromVdsWithHailBase(stage.MultiCohortStage):
+    """Undecorated base holding the densify logic. See paired decorated wrapper below.
+
+    Split from the decorated stage so subclasses (e.g. CreateDenseMtFromVdsWithHailNoFragments
+    in synthetic_proband_stages.py) can inherit the logic and override extension points.
+    cpg-flow's @stage.stage decorator wraps its target in a function, which can't be
+    subclassed - so we register empty decorated wrappers over these base classes instead.
+    """
+
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict:
         """
         the MT and both shard_manifest files are Paths, so this stage will rerun if any of those are missing
         the VCFs are written as a directory, rather than a single VCF, so we can't check its existence well
 
         Needs a range of INFO fields to be present in the VCF
+
+        The sites-only VCF fragments feed VQSR / VEP in the standard workflow. Subclasses that
+        bypass VQSR / VEP (see CreateDenseMtFromVdsWithHailNoFragments in
+        synthetic_proband_stages.py) override this method to omit the four VCF-related keys.
         """
         temp_prefix = self.tmp_prefix
 
         return {
             'mt': temp_prefix / f'{multicohort.name}.mt',
-            # this will be the write path for fragments of sites-only VCF (header-per-shard)
+            # write path for fragments of sites-only VCF (header-per-shard)
             'hps_vcf_dir': str(temp_prefix / f'{multicohort.name}.vcf.bgz'),
-            # this will be the file which contains the name of all fragments (header-per-shard)
+            # file containing the names of all fragments (header-per-shard)
             'hps_shard_manifest': temp_prefix / f'{multicohort.name}.vcf.bgz' / SHARD_MANIFEST,
-            # this will be the write path for fragments of sites-only VCF (separate header)
+            # write path for fragments of sites-only VCF (separate header)
             'separate_header_vcf_dir': str(temp_prefix / f'{multicohort.name}_separate.vcf.bgz'),
-            # this will be the file which contains the name of all fragments (separate header)
+            # file containing the names of all fragments (separate header)
             'separate_header_manifest': temp_prefix / f'{multicohort.name}_separate.vcf.bgz' / SHARD_MANIFEST,
         }
+
+    def _get_input_vds(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> str:
+        """Return the VDS path this stage densifies.
+
+        Subclasses can override to swap the upstream combiner (see
+        CreateDenseMtFromVdsWithHailNoFragments in synthetic_proband_stages.py).
+        """
+        return inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds')
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
@@ -117,14 +136,19 @@ class CreateDenseMtFromVdsWithHail(stage.MultiCohortStage):
         )
 
         job = generate_densify_jobs(
-            input_vds=inputs.as_str(multicohort, CombineGvcfsIntoVds, 'vds'),
+            input_vds=self._get_input_vds(multicohort, inputs),
             output_mt=outputs['mt'],
-            output_sites_only=outputs['hps_vcf_dir'],
-            output_separate_header=outputs['separate_header_vcf_dir'],
+            output_sites_only=outputs.get('hps_vcf_dir'),
+            output_separate_header=outputs.get('separate_header_vcf_dir'),
             checkpoint=checkpoint_path,
             job_attrs=self.get_job_attrs(multicohort),
         )
         return self.make_outputs(target=multicohort, data=outputs, jobs=job)
+
+
+@stage.stage(required_stages=CombineGvcfsIntoVds)
+class CreateDenseMtFromVdsWithHail(CreateDenseMtFromVdsWithHailBase):
+    """Standard densify stage - all logic lives in CreateDenseMtFromVdsWithHailBase."""
 
 
 @stage.stage(required_stages=[CreateDenseMtFromVdsWithHail])
@@ -424,11 +448,11 @@ class AnnotateCohort(stage.MultiCohortStage):
         return self.make_outputs(multicohort, data=outputs, jobs=job)
 
 
-@stage.stage(required_stages=AnnotateCohort)
-class SubsetMtToDatasetWithHail(stage.DatasetStage):
-    """
-    Subset the MT to a single dataset - or a subset of families within a dataset
-    Skips this stage if the MultiCohort has only one dataset
+class SubsetMtToDatasetWithHailBase(stage.DatasetStage):
+    """Undecorated base holding the subset logic. See paired decorated wrapper below.
+
+    Subset the MT to a single dataset - or a subset of families within a dataset.
+    Skips this stage if the MultiCohort has only one dataset.
     """
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path] | None:
@@ -455,6 +479,14 @@ class SubsetMtToDatasetWithHail(stage.DatasetStage):
             'id_file': dataset.tmp_prefix() / f'{workflow.get_workflow().output_version}-{dataset.name}-SG-ids.txt',
         }
 
+    def _get_cohort_mt(self, inputs: stage.StageInput) -> Path:
+        """Return the cohort-level annotated MT to subset from.
+
+        Subclasses can override to point at a different upstream annotation stage
+        (see AnnotateFromGlobalCallset variant in synthetic_proband_stages.py).
+        """
+        return inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
+
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
 
@@ -466,7 +498,7 @@ class SubsetMtToDatasetWithHail(stage.DatasetStage):
             loguru.logger.info(f'Skipping AnnotateDataset mt subsetting for {dataset}')
             return self.make_outputs(dataset)
 
-        variant_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
+        variant_mt = self._get_cohort_mt(inputs)
 
         job = create_subset_mt_job(
             dataset=dataset,
@@ -479,15 +511,14 @@ class SubsetMtToDatasetWithHail(stage.DatasetStage):
         return self.make_outputs(dataset, data=outputs, jobs=job)
 
 
-@stage.stage(
-    required_stages=[
-        AnnotateCohort,
-        SubsetMtToDatasetWithHail,
-    ],
-    # analyses recorded to pass through to Metamist/other workflows
-    analysis_type='matrixtable',
-)
-class AnnotateDataset(stage.DatasetStage):
+@stage.stage(required_stages=AnnotateCohort)
+class SubsetMtToDatasetWithHail(SubsetMtToDatasetWithHailBase):
+    """Standard subset stage - all logic lives in SubsetMtToDatasetWithHailBase."""
+
+
+class AnnotateDatasetBase(stage.DatasetStage):
+    """Undecorated base holding the per-dataset annotation logic. See paired wrapper below."""
+
     def expected_outputs(self, dataset: targets.Dataset) -> Path:
         """
         Expected to generate a matrix table
@@ -505,6 +536,20 @@ class AnnotateDataset(stage.DatasetStage):
             / mt_name
         )
 
+    def _get_cohort_mt(self, dataset: targets.Dataset, inputs: stage.StageInput) -> Path:
+        """Return the cohort-level annotated MT to subset per-dataset.
+
+        For single-dataset multicohorts with no family filter, reads directly from
+        AnnotateCohort. Otherwise reads from the per-dataset SubsetMt output.
+
+        Subclasses can override this to swap the upstream annotation source (see
+        AnnotateDatasetFromGlobalCallset in synthetic_proband_stages.py).
+        """
+        family_sgs = utils.get_family_sequencing_groups(dataset)
+        if len(workflow.get_multicohort().get_datasets()) == 1 and family_sgs is None:
+            return inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
+        return inputs.as_path(target=dataset, stage=SubsetMtToDatasetWithHail, key='mt')
+
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
         # only create final MTs for datasets specified in the config
         # catches specific instructions to just run this Stage, and for the two stages which can follow this
@@ -513,14 +558,7 @@ class AnnotateDataset(stage.DatasetStage):
             return self.make_outputs(dataset)
 
         output = self.expected_outputs(dataset)
-
-        # choose whether to run directly from AnnotateCohort, or use the Dataset/Family Subset MT from previous Stage
-        family_sgs = utils.get_family_sequencing_groups(dataset)
-        # choose the input MT based on the number of datasets in the MultiCohort and the presence of family SGs
-        if len(workflow.get_multicohort().get_datasets()) == 1 and family_sgs is None:
-            input_mt = inputs.as_path(target=workflow.get_multicohort(), stage=AnnotateCohort)
-        else:
-            input_mt = inputs.as_path(target=dataset, stage=SubsetMtToDatasetWithHail, key='mt')
+        input_mt = self._get_cohort_mt(dataset, inputs)
 
         job = create_annotate_dataset_job(
             dataset=dataset,
@@ -529,6 +567,18 @@ class AnnotateDataset(stage.DatasetStage):
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=output, jobs=job)
+
+
+@stage.stage(
+    required_stages=[
+        AnnotateCohort,
+        SubsetMtToDatasetWithHail,
+    ],
+    # analyses recorded to pass through to Metamist/other workflows
+    analysis_type='matrixtable',
+)
+class AnnotateDataset(AnnotateDatasetBase):
+    """Standard per-dataset annotation stage - all logic lives in AnnotateDatasetBase."""
 
 
 @stage.stage(required_stages=[AnnotateDataset], analysis_type='custom', analysis_keys=['vcf'])
@@ -570,16 +620,8 @@ class AnnotatedDatasetMtToVcf(stage.DatasetStage):
         return self.make_outputs(dataset, data=output, jobs=job)
 
 
-@stage.stage(
-    required_stages=[AnnotateDataset],
-    analysis_type='es-index',
-    analysis_keys=['done_flag'],
-    update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
-)
-class ExportMtAsEsIndex(stage.DatasetStage):
-    """
-    Create a Seqr index.
-    """
+class ExportMtAsEsIndexBase(stage.DatasetStage):
+    """Undecorated base holding the ES export logic. See paired decorated wrapper below."""
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, str | Path]:
         """
@@ -622,7 +664,7 @@ class ExportMtAsEsIndex(stage.DatasetStage):
             return self.make_outputs(dataset)
 
         # get the absolute path to the MT
-        mt_path = inputs.as_str(target=dataset, stage=AnnotateDataset)
+        mt_path = self._get_annotated_mt_path(dataset, inputs)
 
         outputs = self.expected_outputs(dataset)
 
@@ -635,3 +677,21 @@ class ExportMtAsEsIndex(stage.DatasetStage):
         )
 
         return self.make_outputs(dataset, data=outputs['done_flag'], jobs=job)
+
+    def _get_annotated_mt_path(self, dataset: targets.Dataset, inputs: stage.StageInput) -> str:
+        """Return the per-dataset annotated MT path to load into ES.
+
+        Subclasses can override to swap the upstream AnnotateDataset variant (see
+        ExportMtAsEsIndexFromGlobalCallset in synthetic_proband_stages.py).
+        """
+        return inputs.as_str(target=dataset, stage=AnnotateDataset)
+
+
+@stage.stage(
+    required_stages=[AnnotateDataset],
+    analysis_type='es-index',
+    analysis_keys=['done_flag'],
+    update_analysis_meta=lambda x: {'seqr-dataset-type': 'VARIANTS'},  # noqa: ARG005
+)
+class ExportMtAsEsIndex(ExportMtAsEsIndexBase):
+    """Standard ES index export stage - all logic lives in ExportMtAsEsIndexBase."""

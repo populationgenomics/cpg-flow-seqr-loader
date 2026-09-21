@@ -226,6 +226,50 @@ def query_for_latest_vds(dataset: str, entry_type: str = 'combiner') -> dict | N
     return analyses_by_date[sorted(analyses_by_date)[-1]]
 
 
+ANNOTATE_COHORT_STAGE_NAME = 'AnnotateCohort'
+
+
+def query_for_latest_annotate_cohort_mt(dataset: str) -> str:
+    """Find the most recent global AnnotateCohort matrixtable path in metamist.
+
+    Reuses LATEST_ANALYSIS_QUERY (type=matrixtable) and filters Python-side to entries
+    produced by this repo's AnnotateCohort stage (via meta.stage), for the current
+    workflow's sequencing_type. The meta.stage filter is what excludes legacy runs from
+    production-pipelines' AnnotateCohortSmallVariantsWithHailQuery, whose row schema may
+    not match what this repo's downstream stages expect.
+
+    Raises ValueError if no matching analysis exists — we don't want the downstream join
+    to run against a stale or wrong callset, so this must fail loud at DAG-planning time.
+    """
+    query_dataset = dataset
+    if config.config_retrieve(['workflow', 'access_level']) == 'test' and 'test' not in query_dataset:
+        query_dataset += '-test'
+
+    result = query(LATEST_ANALYSIS_QUERY, variables={'dataset': query_dataset, 'type': 'matrixtable'})
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
+    candidates = {
+        analysis['timestampCompleted']: analysis
+        for analysis in result['project']['analyses']
+        if analysis['output']
+        and analysis['meta'].get('stage') == ANNOTATE_COHORT_STAGE_NAME
+        and analysis['meta'].get('sequencing_type') == sequencing_type
+    }
+
+    if not candidates:
+        raise ValueError(
+            f'No completed {ANNOTATE_COHORT_STAGE_NAME} matrixtable analysis found in metamist project '
+            f'{query_dataset!r} for sequencing_type={sequencing_type!r}. '
+            f'The AnnotateFromGlobalCallset stage cannot proceed without a source annotate_cohort.mt.',
+        )
+
+    latest = candidates[sorted(candidates)[-1]]
+    loguru.logger.info(
+        f'Latest global annotate_cohort.mt: {latest["output"]} (completed {latest["timestampCompleted"]})',
+    )
+    return latest['output']
+
+
 @functools.lru_cache(1)
 def get_localised_resources_for_vqsr() -> dict[str, 'ResourceGroup']:
     """Get the resources required for VQSR, once per run."""
