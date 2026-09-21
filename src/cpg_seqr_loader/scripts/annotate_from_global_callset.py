@@ -5,26 +5,19 @@ because their cohort includes synthetic samples whose AC/AN/AF would pollute the
 Instead of re-annotating from scratch, we join row-wise against the standard seqr-loader's
 annotate_cohort.mt (produced from real samples only) and copy every row annotation across.
 
-Some input_mt rows fail exact (locus, alleles) match against the global because Hail's
-sparse_split_multi (in densify_VDS_to_MT) leaves non-minimal padding on split alleles, and the
-input_mt and global went through independent combiner runs. Rather than shuffle the (very large)
-global MT to re-normalise it, we recover those mismatches by driver-side locus-window search plus
-allele trim - cost is bounded by the (small) mismatch count, not by global MT size.
+Design (after multiple attempts at re-key + union + computed-key lookup all hit
+LowerDistributedSort failures):
+  - The bulk join uses input_mt.row_key directly, matching global_rows' key structure. Where
+    possible Hail streams this as a partition-aligned zip - no shuffle.
+  - For the ~124 input rows whose exact keys don't appear in global (sparse_split_multi padding
+    on the global side), we collect their global annotations driver-side (during recovery), then
+    broadcast a small hl.literal dict of overrides.
+  - hl.coalesce(direct_join_result, broadcast_override) picks the direct-join annotation where
+    it landed, else the broadcast override for the 124 recovered rows.
 
-The recovered mismatches are handled via an "effective lookup key" computed per row: for the
-~124 recovered rows the global's non-minimal (locus, alleles) is used to fetch annotations; for
-every other row the original key is used. Global annotations still land on every input row and
-the input MT is never re-keyed.
-
-Consequence: the output MT keeps min-rep keys throughout, including for the 124 recovered rows.
-Those variants appear in seqr under min-rep form rather than the global's non-minimal padding.
-This is arguably the more canonical representation (matches ClinVar / gnomAD) and no variants
-are lost.
-
-Before the join we checkpoint the input MT (with the added lookup-key fields) so QoB doesn't
-have to fuse the entire pipeline into one big shuffle and so partial-failure recovery is cheap.
-QoB resourcing (driver_cores / worker_cores) is exposed via config keys under
-`annotate_from_global_callset` for the retry ladder (start 2/1, then 2/2, then 4/2).
+Consequence: output MT keeps min-rep keys throughout. Those 124 variants appear in seqr under
+min-rep form rather than the global's non-minimal padding - arguably more canonical (matches
+ClinVar / gnomAD). No variants are lost.
 
 Invariant: every input row must exist in the global (directly or via trim-recovery). If any row
 can't be recovered, the recovery step raises loudly - either create_synthetic_proband_gvcf.py has
@@ -44,7 +37,6 @@ def annotate_from_global_callset(
     input_mt_path: str,
     global_mt_path: str,
     output_mt_path: str,
-    checkpoint_path: str,
 ) -> None:
     """Row-join the input densified MT against a global annotate_cohort.mt and write the result."""
     loguru.logger.info(f'Reading input MT: {input_mt_path}')
@@ -58,12 +50,13 @@ def annotate_from_global_callset(
     # synthetic cohort and would be misleading. Global values replace them.
     input_mt = input_mt.drop('info', 'site_dp', 'ANS')
 
-    # Find rewrites for rows whose keys don't exact-match global. Raises loudly if any row is
-    # unrecoverable (invented variant or temporal drift beyond the global's build).
-    rewrite_ht = _build_rewrite_table(input_mt, global_rows)
+    # Find rewrites for rows whose keys don't exact-match global. Also captures the full global
+    # annotation struct for each recovered variant so we can broadcast it later. Raises loudly if
+    # any row is unrecoverable (invented variant or temporal drift beyond the global's build).
+    rewrites = _build_rewrite_list(input_mt, global_rows)
 
     loguru.logger.info('Joining global row annotations onto input MT')
-    annotated_mt = _annotate_via_effective_key(input_mt, global_rows, rewrite_ht, checkpoint_path)
+    annotated_mt = _annotate_via_direct_join_with_broadcast(input_mt, global_rows, rewrites)
 
     global_metadata = global_mt.index_globals()
     annotated_mt = annotated_mt.annotate_globals(
@@ -88,23 +81,30 @@ def _trim_alleles(pos: int, ref: str, alt: str) -> tuple[int, str, str]:
     return pos + shift, ref, alt
 
 
-def _build_rewrite_table(
+def _build_rewrite_list(
     input_mt: hl.MatrixTable,
     global_rows: hl.Table,
     window_bp: int = 50,
-) -> hl.Table | None:
+) -> list[dict] | None:
     """Find rewrites for input_mt rows that fail exact-match against global.
 
     For each input row not in global, search nearby global rows (locus +/- window_bp), trim their
-    alleles common-bases-style, and find one whose trimmed form matches the input row's key.
-    Returns a keyed Table mapping (orig_contig, orig_pos, orig_ref, orig_alt) -> new (contig, pos,
-    alleles). Returns None if no rows need rewriting.
+    alleles common-bases-style, and find one whose trimmed form matches the input row's key. We
+    also capture the matching global row's FULL annotation struct so it can be broadcast later
+    (no need for a second Hail lookup on the join path).
+
+    Returns a list of dicts, one per recovered row:
+        {
+            'orig_contig': str, 'orig_pos': int, 'orig_ref': str, 'orig_alt': str,
+            'global_ann': hl.Struct(...)  # global's row-value payload, without locus / alleles
+        }
+    Or None if no rows need rewriting.
 
     Raises ValueError if any row is unrecoverable - the workflow must not silently drop rows the
     user expected to appear in seqr.
 
-    The recovery walk is driver-side but bounded by the (small) mismatch count. Each per-mismatch
-    lookup uses the global's row-key partition index, so cost is O(mismatches), not O(global size).
+    Cost: O(mismatches) locus-window queries on global_rows, each using the row-key partition
+    index. No dependency on global size.
     """
     missing_rows = input_mt.rows().anti_join(global_rows).select().collect()
     if not missing_rows:
@@ -127,7 +127,8 @@ def _build_rewrite_table(
             pos + window_bp,
             reference_genome='GRCh38',
         )
-        candidates = global_rows.filter(window.contains(global_rows.locus)).select().collect()
+        # Collect full rows (with annotations) - the matching one gets broadcast back to the MT.
+        candidates = global_rows.filter(window.contains(global_rows.locus)).collect()
         matched = False
         for cand in candidates:
             if cand.locus.contig != contig:
@@ -138,15 +139,14 @@ def _build_rewrite_table(
                 cand.alleles[1],
             )
             if cand_pos == pos and cand_ref == ref and cand_alt == alt:
+                ann_fields = {k: v for k, v in cand.items() if k not in ('locus', 'alleles')}
                 rewrites.append(
                     {
                         'orig_contig': contig,
                         'orig_pos': pos,
                         'orig_ref': ref,
                         'orig_alt': alt,
-                        'new_contig': cand.locus.contig,
-                        'new_pos': cand.locus.position,
-                        'new_alleles': list(cand.alleles),
+                        'global_ann': hl.Struct(**ann_fields),
                     },
                 )
                 matched = True
@@ -169,77 +169,69 @@ def _build_rewrite_table(
             f'First {len(example_strs)} unrecovered variants:\n  ' + '\n  '.join(example_strs),
         )
 
-    if not rewrites:
-        return None
-
-    return hl.Table.parallelize(
-        rewrites,
-        schema=hl.tstruct(
-            orig_contig=hl.tstr,
-            orig_pos=hl.tint32,
-            orig_ref=hl.tstr,
-            orig_alt=hl.tstr,
-            new_contig=hl.tstr,
-            new_pos=hl.tint32,
-            new_alleles=hl.tarray(hl.tstr),
-        ),
-        key=['orig_contig', 'orig_pos', 'orig_ref', 'orig_alt'],
-    )
+    return rewrites if rewrites else None
 
 
-def _annotate_via_effective_key(
+def _annotate_via_direct_join_with_broadcast(
     input_mt: hl.MatrixTable,
     global_rows: hl.Table,
-    rewrite_ht: hl.Table | None,
-    checkpoint_path: str,
+    rewrites: list[dict] | None,
 ) -> hl.MatrixTable:
-    """Join global row annotations onto input_mt without re-keying it.
+    """Direct-key join for 99.999% of rows; broadcast dict fallback for the ~124 recovered ones.
 
-    Computes an "effective lookup key" per row (rewrite -> global's non-minimal (locus,
-    alleles) for the ~124 rewritten rows; original key for everything else) and indexes
-    global_rows by that computed key. Output MT keeps the input's min-rep keys throughout.
-
-    Before the final annotation join, we checkpoint the input MT with its lookup-key fields
-    added. Two reasons (per Ed): (1) makes recovery cheap if the join step fails, (2) splits
-    Hail's query graph so QoB doesn't have to fuse the entire pipeline into one shuffle.
+    - `global_rows[input_mt.row_key]` uses the input MT's actual row key. When Hail can prove
+      the two tables' keys align, it streams this without shuffling. If it does need to
+      co-partition, it's still the best-optimised join case.
+    - For the 124 rows whose exact keys don't appear in global, hl.coalesce falls through to a
+      broadcast dict of overrides. The dict is a few MB - broadcast to each executor once, then
+      per-row lookups are local.
     """
-    if rewrite_ht is None:
-        return input_mt.annotate_rows(**global_rows[input_mt.row_key])
+    # Direct join. Most rows get a real annotation struct here; the 124 mismatched rows get null.
+    annotated_mt = input_mt.annotate_rows(direct_ann_tmp=global_rows[input_mt.row_key])
 
-    input_mt = input_mt.annotate_rows(
-        rewrite_tmp=rewrite_ht[
-            input_mt.locus.contig,
-            input_mt.locus.position,
-            input_mt.alleles[0],
-            input_mt.alleles[1],
-        ],
+    if not rewrites:
+        # No recovered rows - just unpack the direct-join struct into the row schema.
+        annotated_mt = annotated_mt.annotate_rows(**annotated_mt.direct_ann_tmp)
+        return annotated_mt.drop('direct_ann_tmp')
+
+    # Broadcast dict keyed by (contig, pos, ref, alt) - a struct of primitives, safe as a
+    # Hail dict key. Value is the full global annotation struct for that recovered variant.
+    key_dtype = hl.tstruct(
+        contig=hl.tstr,
+        pos=hl.tint32,
+        ref=hl.tstr,
+        alt=hl.tstr,
     )
-    input_mt = input_mt.annotate_rows(
-        lookup_locus_tmp=hl.if_else(
-            hl.is_defined(input_mt.rewrite_tmp),
-            hl.locus(
-                input_mt.rewrite_tmp.new_contig,
-                input_mt.rewrite_tmp.new_pos,
-                reference_genome='GRCh38',
-            ),
-            input_mt.locus,
+    override_dict = {
+        hl.Struct(
+            contig=r['orig_contig'],
+            pos=r['orig_pos'],
+            ref=r['orig_ref'],
+            alt=r['orig_alt'],
+        ): r['global_ann']
+        for r in rewrites
+    }
+    override_lit = hl.literal(
+        override_dict,
+        dtype=hl.tdict(key_dtype, global_rows.row_value.dtype),
+    )
+
+    lookup_key = hl.struct(
+        contig=annotated_mt.locus.contig,
+        pos=annotated_mt.locus.position,
+        ref=annotated_mt.alleles[0],
+        alt=annotated_mt.alleles[1],
+    )
+
+    # Prefer the direct-join result; fall back to the broadcast override for the 124 recovered rows.
+    annotated_mt = annotated_mt.annotate_rows(
+        combined_ann_tmp=hl.coalesce(
+            annotated_mt.direct_ann_tmp,
+            override_lit.get(lookup_key),
         ),
-        lookup_alleles_tmp=hl.if_else(
-            hl.is_defined(input_mt.rewrite_tmp),
-            input_mt.rewrite_tmp.new_alleles,
-            input_mt.alleles,
-        ),
     )
-
-    loguru.logger.info(f'Checkpointing input MT with lookup keys to {checkpoint_path}')
-    input_mt = input_mt.checkpoint(checkpoint_path, overwrite=True)
-
-    # Index global_rows by the computed lookup key. Hail evaluates global_rows[<expr>, <expr>]
-    # as a keyed lookup and delivers the matching row struct.
-    annotated_mt = input_mt.annotate_rows(
-        **global_rows[input_mt.lookup_locus_tmp, input_mt.lookup_alleles_tmp],
-    )
-    return annotated_mt.drop('rewrite_tmp', 'lookup_locus_tmp', 'lookup_alleles_tmp')
+    annotated_mt = annotated_mt.annotate_rows(**annotated_mt.combined_ann_tmp)
+    return annotated_mt.drop('direct_ann_tmp', 'combined_ann_tmp')
 
 
 def cli_main() -> None:
@@ -247,11 +239,10 @@ def cli_main() -> None:
     parser.add_argument('--input', required=True, help='Path to the densified input MT')
     parser.add_argument('--global_mt', required=True, help='Path to the global annotate_cohort.mt to join against')
     parser.add_argument('--output', required=True, help='Path to write the annotated MT')
-    parser.add_argument('--checkpoint', required=True, help='Path to checkpoint the input MT before the join')
     args = parser.parse_args()
 
-    # driver_cores + worker_cores tune QoB resourcing for the shuffle-heavy join step.
-    # Defaults per Ed's guidance for large-MT joins; override via config for retry ladder.
+    # driver_cores + worker_cores tune QoB resourcing. Defaults per Ed's guidance for large-MT
+    # joins; override via config keys for retry ladder (2/1 -> 2/2 -> 4/2).
     hail_batch.init_batch(
         driver_cores=config.config_retrieve(['annotate_from_global_callset', 'driver_cores'], 2),
         worker_cores=config.config_retrieve(['annotate_from_global_callset', 'worker_cores'], 1),
@@ -260,7 +251,6 @@ def cli_main() -> None:
         input_mt_path=args.input,
         global_mt_path=args.global_mt,
         output_mt_path=args.output,
-        checkpoint_path=args.checkpoint,
     )
 
 
