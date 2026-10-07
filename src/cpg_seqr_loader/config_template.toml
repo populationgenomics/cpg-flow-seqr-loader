@@ -84,8 +84,11 @@ driver_memory = "standard"
 driver_cores = 2
 # highem, standard, or a string, e.g. "4Gi"
 worker_memory = "standard"
-# number of MT partitions collected into the job's memory and written to Parquet at a time
-partitions_per_chunk = 10
+# block size used when streaming the intermediate JSON into Parquet. Each block must hold at least one whole variant
+# (row fields plus all entries), so increase this for very large cohorts
+json_block_size_mb = 64
+# max rows (variant x sample) expanded in memory and written per Parquet row group
+rows_per_row_group = 250000
 
 [vqsr]
 # VQSR, when applying model, targets indel_filter_level and snp_filter_level

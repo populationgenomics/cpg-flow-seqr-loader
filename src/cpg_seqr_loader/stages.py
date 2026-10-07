@@ -597,15 +597,19 @@ class AnnotatedDatasetMtToParquet(stage.DatasetStage):
     Optional stage set by dataset name in the config file
     """
 
-    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path | str]:
         """
         Expected to generate a single Parquet file from the single-dataset MT
+        The intermediate JSON shards are a temporary directory, so they're a str (not checked for existence)
         """
         if family_sgs := utils.get_family_sequencing_groups(dataset):
-            file_name = f'{workflow.get_workflow().output_version}-{dataset.name}-{family_sgs["name_suffix"]}.parquet'
+            name = f'{workflow.get_workflow().output_version}-{dataset.name}-{family_sgs["name_suffix"]}'
         else:
-            file_name = f'{workflow.get_workflow().output_version}-{dataset.name}.parquet'
-        return {'parquet': dataset.prefix() / 'parquet' / file_name}
+            name = f'{workflow.get_workflow().output_version}-{dataset.name}'
+        return {
+            'parquet': dataset.prefix() / 'parquet' / f'{name}.parquet',
+            'json_dir': str(dataset.tmp_prefix() / workflow.get_workflow().name / self.name / f'{name}.json.bgz'),
+        }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
         """Run a MT -> Parquet extraction on selected cohorts - only run this on manually defined list of Datasets."""
@@ -621,6 +625,7 @@ class AnnotatedDatasetMtToParquet(stage.DatasetStage):
 
         job = create_mt_to_parquet_job(
             input_mt=mt_path,
+            json_dir=outputs['json_dir'],
             output_parquet=outputs['parquet'],
             job_attrs=self.get_job_attrs(dataset),
         )
