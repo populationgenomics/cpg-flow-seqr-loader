@@ -13,6 +13,7 @@ from cpg_utils import Path, cloud, config
 from cpg_seqr_loader import utils
 from cpg_seqr_loader.jobs.AnnotateCohort import create_annotate_cohort_job
 from cpg_seqr_loader.jobs.AnnotateDataset import create_annotate_dataset_job
+from cpg_seqr_loader.jobs.AnnotatedDatasetMtToParquet import create_mt_to_parquet_job
 from cpg_seqr_loader.jobs.AnnotatedDatasetMtToVcf import cohort_to_vcf_job
 from cpg_seqr_loader.jobs.AnnotateVcfsWithVep import add_vep_jobs
 from cpg_seqr_loader.jobs.CombineGvcfsIntoVds import create_combiner_jobs
@@ -587,6 +588,43 @@ class AnnotatedDatasetMtToVcf(stage.DatasetStage):
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=output, jobs=job)
+
+
+@stage.stage(required_stages=[AnnotateDataset], analysis_type='custom', analysis_keys=['parquet'])
+class AnnotatedDatasetMtToParquet(stage.DatasetStage):
+    """
+    Take the per-dataset annotated MT and write out as a long-format Parquet file, one row per variant x sample
+    Optional stage set by dataset name in the config file
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        """
+        Expected to generate a single Parquet file from the single-dataset MT
+        """
+        if family_sgs := utils.get_family_sequencing_groups(dataset):
+            file_name = f'{workflow.get_workflow().output_version}-{dataset.name}-{family_sgs["name_suffix"]}.parquet'
+        else:
+            file_name = f'{workflow.get_workflow().output_version}-{dataset.name}.parquet'
+        return {'parquet': dataset.prefix() / 'parquet' / file_name}
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
+        """Run a MT -> Parquet extraction on selected cohorts - only run this on manually defined list of Datasets."""
+
+        # only run this selectively, most datasets it's not required
+        eligible_datasets = config.config_retrieve(['workflow', 'write_parquet'], default=[])
+        if dataset.name not in eligible_datasets:
+            return None
+
+        outputs = self.expected_outputs(dataset)
+
+        mt_path = inputs.as_str(target=dataset, stage=AnnotateDataset)
+
+        job = create_mt_to_parquet_job(
+            input_mt=mt_path,
+            output_parquet=outputs['parquet'],
+            job_attrs=self.get_job_attrs(dataset),
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=job)
 
 
 @stage.stage(

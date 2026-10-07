@@ -8,7 +8,7 @@ import argparse
 
 from cpg_flow import workflow
 
-from cpg_seqr_loader.stages import AnnotatedDatasetMtToVcf, ExportMtAsEsIndex
+from cpg_seqr_loader.stages import AnnotatedDatasetMtToParquet, AnnotatedDatasetMtToVcf, ExportMtAsEsIndex
 
 
 def cli_main():
@@ -18,7 +18,7 @@ def cli_main():
 
     workflow.run_workflow(
         name='seqr_loader',
-        stages=[ExportMtAsEsIndex, AnnotatedDatasetMtToVcf],
+        stages=[ExportMtAsEsIndex, AnnotatedDatasetMtToVcf, AnnotatedDatasetMtToParquet],
         dry_run=args.dry_run,
     )
 
