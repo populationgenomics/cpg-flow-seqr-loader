@@ -142,12 +142,18 @@ def read_bed_file_as_intervals(bed_path: str) -> list[hl.Interval]:
 
 @functools.cache
 def run_annotate_dataset(dataset: str) -> bool:
-    """Use all 3 config entries and make a single decision on whether to run the annotate_dataset stage."""
+    """Use all 4 config entries and make a single decision on whether to run the annotate_dataset stage."""
     write_vcf_datasets = config.config_retrieve(['workflow', 'write_vcf'])
     write_es_datasets = config.config_retrieve(['workflow', 'create_es_index_for_datasets'])
     write_mt_datasets = config.config_retrieve(['workflow', 'write_mt_for_datasets'])
+    write_parquet_datasets = config.config_retrieve(['workflow', 'write_parquet'], default=[])
 
-    all_datasets = set.union(set(write_vcf_datasets), set(write_es_datasets), set(write_mt_datasets))
+    all_datasets = set.union(
+        set(write_vcf_datasets),
+        set(write_es_datasets),
+        set(write_mt_datasets),
+        set(write_parquet_datasets),
+    )
 
     return dataset in all_datasets
 

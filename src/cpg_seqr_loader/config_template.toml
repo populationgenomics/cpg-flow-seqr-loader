@@ -13,6 +13,9 @@ write_mt_for_datasets = []
 # add any datasets to this list to export a VCF from the Annotated Dataset mt
 write_vcf = []
 
+# add any datasets to this list to export a long-format (variant x sample) Parquet file from the Annotated Dataset mt
+write_parquet = []
+
 # datasets in this list will have an ElasticSearch Index created
 create_es_index_for_datasets = []
 
@@ -73,6 +76,19 @@ driver_memory = "standard"
 driver_cores = 2
 # highem, standard, or a string, e.g. "4Gi"
 worker_memory = "standard"
+
+[mt_to_parquet]
+# highem, standard, or a string, e.g. "4Gi"
+driver_memory = "standard"
+# integer
+driver_cores = 2
+# highem, standard, or a string, e.g. "4Gi"
+worker_memory = "standard"
+# block size used when streaming the intermediate JSON into Parquet. Each block must hold at least one whole variant
+# (row fields plus all entries), so increase this for very large cohorts
+json_block_size_mb = 64
+# max rows (variant x sample) expanded in memory and written per Parquet row group
+rows_per_row_group = 250000
 
 [vqsr]
 # VQSR, when applying model, targets indel_filter_level and snp_filter_level
