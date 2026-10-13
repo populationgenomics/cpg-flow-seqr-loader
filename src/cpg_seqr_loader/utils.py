@@ -2,6 +2,7 @@
 suggested location for any utility methods or constants used across multiple stages
 """
 
+import collections
 import datetime
 import functools
 import hashlib
@@ -283,6 +284,31 @@ def get_family_sequencing_groups(dataset: targets.Dataset) -> dict | None:
     name_suffix = f'{len(family_sg_ids)}_sgs-{len(only_family_ids)}_families-{h}'
 
     return {'family_sg_ids': family_sg_ids, 'name_suffix': name_suffix}
+
+
+def get_participant_id_mapping(dataset: targets.Dataset) -> dict[str, str]:
+    """
+    Map each SG ID in the Dataset (or its configured family subset) to the participant external ID
+    seqr identifies samples by participant external ID, so fail if any are absent or shared between SGs
+    """
+    family_sg_ids = family_sgs['family_sg_ids'] if (family_sgs := get_family_sequencing_groups(dataset)) else None
+    sgs = [
+        sg
+        for sg in dataset.get_sequencing_groups()
+        if ((family_sg_ids is None) or sg.id in family_sg_ids) and (sg.gvcf is not None)
+    ]
+    if not sgs:
+        raise ValueError(f'No sequencing groups with gVCFs found in dataset {dataset.name}')
+
+    # sg.participant_id silently falls back to the sample external ID, so check the raw value from metamist
+    if missing := [sg.id for sg in sgs if not sg._participant_id]:  # noqa: SLF001
+        raise ValueError(f'SG IDs in {dataset.name} without a participant external ID: {", ".join(missing)}')
+
+    mapping = {sg.id: sg.participant_id for sg in sgs}
+    if duplicates := sorted(pid for pid, count in collections.Counter(mapping.values()).items() if count > 1):
+        raise ValueError(f'Participant external IDs shared by multiple SGs in {dataset.name}: {", ".join(duplicates)}')
+
+    return mapping
 
 
 def manually_find_ids_from_vds(vds_path: str) -> set[str]:

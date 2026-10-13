@@ -40,6 +40,7 @@ test = [
 # the workflow runner script - entrypoint for the pipeline
 first_workflow = 'cpg_seqr_loader.first_workflow:cli_main'
 full_workflow = 'cpg_seqr_loader.full_workflow:cli_main'
+seqr_vcf_workflow = 'cpg_seqr_loader.seqr_vcf_workflow:cli_main'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cpg_seqr_loader"]

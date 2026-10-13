@@ -16,6 +16,12 @@ write_vcf = []
 # datasets in this list will have an ElasticSearch Index created
 create_es_index_for_datasets = []
 
+# datasets in this list will have a seqr-ready VCF written from the dense MT with VQSR filters (seqr_vcf_workflow)
+write_seqr_vcf_for_datasets = []
+
+# the workflow first_workflow submits once it completes, 'full_workflow' or 'seqr_vcf_workflow'
+post_combiner_workflow = 'full_workflow'
+
 [combiner]
 # used to decide if we should resume from a previous combiner plan
 force_new_combiner = false
@@ -65,6 +71,16 @@ worker_memory = "highmem"
 driver_memory = "highmem"
 # integer
 driver_cores = 4
+
+[seqr_vcf]
+# highem, standard, or a string, e.g. "4Gi"
+driver_memory = "highmem"
+# integer
+driver_cores = 4
+# highem, standard, or a string, e.g. "4Gi"
+worker_memory = "highmem"
+# integer
+worker_cores = 4
 
 [vcf_from_mt]
 # highem, standard, or a string, e.g. "4Gi"

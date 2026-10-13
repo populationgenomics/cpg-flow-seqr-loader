@@ -91,3 +91,14 @@ Once the workflow has run to completion, there will be an AnnotateCohort MatrixT
 If a dataset appears in any one of these 3 lists, `AnnotateDataset` will run. Control of the final two stages is specific to the controlling config entry for each.
 
 By default, none of these stages will run, which gives us granular control over the data being generated and pushed into long-term storage. Execution of `ExportMtAsEsIndex` is also conditional on the ElasticSearch credentials being successfully accessed as GCP Secrets at runtime, so if the service account running the workflow does not have access to the secrets, or the required configuration entries are absent, this stage will not run.
+
+## Seqr VCFs with VQSR filters
+
+The newer seqr deployment carries out its own annotation on import, so it only needs a joint-called VCF per dataset. The `seqr_vcf_workflow` command is an alternative to `full_workflow`: it runs VQSR as normal, then writes a VCF per dataset from the dense MT, with the VQSR result in the FILTER column. VEP and all annotation stages (`AnnotateCohort`, `SubsetMtToDatasetWithHail`, `AnnotateDataset`) are skipped.
+
+To chain this automatically, set `workflow.post_combiner_workflow = 'seqr_vcf_workflow'` and run `first_workflow` as above. When the first workflow completes, it submits `seqr_vcf_workflow` instead of `full_workflow`. Alternatively, once `first_workflow` has completed, `seqr_vcf_workflow` can be run directly in place of `full_workflow` in the command above.
+
+* `workflow.write_seqr_vcf_for_datasets`: the `SeqrVcfFromDenseMt` Stage will only run for datasets in this list. By default this is empty, and nothing is written.
+* `workflow.post_combiner_workflow`: the workflow submitted by `first_workflow` on completion. Defaults to `full_workflow`.
+
+Each VCF is subset to the dataset's sequencing groups (or the families in `workflow.<dataset>.only_families`), and contains only GT, AD, and GQ FORMAT fields, with the VQSR FILTER and no INFO. Samples are named by participant external ID, which seqr requires. The workflow fails before submitting any jobs if a sequencing group has no participant external ID, or if two sequencing groups in the dataset share one.
