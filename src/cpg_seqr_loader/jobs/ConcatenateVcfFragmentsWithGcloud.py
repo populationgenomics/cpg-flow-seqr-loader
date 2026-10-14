@@ -22,9 +22,11 @@ def create_and_run_compose_script(
     job_1.image(config.config_retrieve(['workflow', 'driver_image']))
     job_1.command(
         f"""
+        gcloud storage ls -l {manifest_dir}/ > $BATCH_TMPDIR/fragment_sizes.txt
         python -m cpg_seqr_loader.scripts.write_gcloud_compose_script \\
             --input {local_manifest} \\
             --vcf_dir {manifest_dir} \\
+            --sizes $BATCH_TMPDIR/fragment_sizes.txt \\
             --output {output!s} \\
             --script {job_1.output} \\
             --tmp {tmp_dir / 'compose_intermediates' / multicohort.name!s}
