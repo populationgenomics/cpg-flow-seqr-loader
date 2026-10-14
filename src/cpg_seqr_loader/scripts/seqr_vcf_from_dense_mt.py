@@ -55,7 +55,9 @@ def main(mt_path: str, vqsr_vcf: str, id_map_file: str, output: str) -> None:
     mt = mt.key_cols_by(s=hl.literal(sg_to_participant)[mt.s])
 
     loguru.logger.info(f'Writing VCF to {output}')
-    hl.export_vcf(mt, output, tabix=True)
+    # carry the VQSR tranche definitions into the header, so every FILTER value is defined
+    filter_metadata = hl.get_vcf_metadata(vqsr_vcf)['filter']
+    hl.export_vcf(mt, output, tabix=True, metadata={'filter': filter_metadata})
 
 
 def cli_main():
