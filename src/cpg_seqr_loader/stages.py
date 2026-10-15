@@ -24,6 +24,7 @@ from cpg_seqr_loader.jobs.GatherTrainedVqsrSnpTranches import gather_tranches
 from cpg_seqr_loader.jobs.ResubmitWorkflow import resubmit_full_workflow
 from cpg_seqr_loader.jobs.RunIndelVqsr import apply_recalibration_indels
 from cpg_seqr_loader.jobs.RunSnpVqsrOnFragments import apply_snp_vqsr_to_fragments
+from cpg_seqr_loader.jobs.SeqrVcfFromDenseMt import create_seqr_vcf_job
 from cpg_seqr_loader.jobs.SubsetMtToDatasetWithHail import create_subset_mt_job
 from cpg_seqr_loader.jobs.TrainVqsrIndels import train_vqsr_indel_model
 from cpg_seqr_loader.jobs.TrainVqsrSnpModel import train_vqsr_snp_model
@@ -654,3 +655,43 @@ class ExportMtAsEsIndex(stage.DatasetStage):
         )
 
         return self.make_outputs(dataset, data=outputs['done_flag'], jobs=job)
+
+
+@stage.stage(
+    required_stages=[CreateDenseMtFromVdsWithHail, RunIndelVqsr],
+    analysis_type='vcf',
+    analysis_keys=['vcf'],
+)
+class SeqrVcfFromDenseMt(stage.DatasetStage):
+    """
+    Write a seqr-ready VCF for a Dataset from the dense MT, with VQSR filters, skipping VEP and all annotation
+    Samples are identified by participant external ID, as required by seqr
+    Only runs for datasets in workflow.write_seqr_vcf_for_datasets
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        output_name = f'{workflow.get_workflow().output_version}-{dataset.name}'
+        if family_sgs := utils.get_family_sequencing_groups(dataset):
+            output_name = f'{output_name}-{family_sgs["name_suffix"]}'
+        return {
+            'vcf': dataset.prefix() / 'seqr_vcf' / f'{output_name}.vcf.bgz',
+            'id_map': dataset.tmp_prefix() / 'seqr_vcf' / f'{output_name}-participant-ids.json',
+        }
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
+        if dataset.name not in config.config_retrieve(['workflow', 'write_seqr_vcf_for_datasets'], default=[]):
+            loguru.logger.info(f'Skipping seqr VCF creation for {dataset}')
+            return None
+
+        outputs = self.expected_outputs(dataset)
+        multicohort = workflow.get_multicohort()
+
+        job = create_seqr_vcf_job(
+            input_mt=inputs.as_str(multicohort, CreateDenseMtFromVdsWithHail, 'mt'),
+            vqsr_vcf=inputs.as_str(multicohort, RunIndelVqsr),
+            sg_to_participant=utils.get_participant_id_mapping(dataset),
+            id_map_file=outputs['id_map'],
+            output_vcf=outputs['vcf'],
+            job_attrs=self.get_job_attrs(dataset),
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=job)

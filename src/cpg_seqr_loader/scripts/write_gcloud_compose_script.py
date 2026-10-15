@@ -9,6 +9,21 @@ from cpg_flow import utils
 
 COMPOSE_COMMAND = 'gcloud storage objects compose'
 
+# a BGZF file containing only the end-of-file marker block, i.e. a fragment from an empty partition
+# these must be skipped: htsjdk (GATK) reads an EOF block mid-file as the end of the file, silently truncating the VCF
+BGZF_EOF_BYTES = 28
+
+
+def read_fragment_sizes(listing_file: str) -> dict[str, int]:
+    """Parse `gcloud storage ls -l` output into a mapping of {file name: size in bytes}."""
+    sizes = {}
+    with open(listing_file) as read_handle:
+        for line in read_handle:
+            fields = line.split()
+            if len(fields) == 3 and fields[0].isdigit() and fields[2].startswith('gs://'):
+                sizes[os.path.basename(fields[2])] = int(fields[0])
+    return sizes
+
 
 def make_compose_string(fragment_list: list[str], output: str) -> str:
     """
@@ -18,21 +33,37 @@ def make_compose_string(fragment_list: list[str], output: str) -> str:
     return f'{COMPOSE_COMMAND} {" ".join(fragment_list)} {output}'
 
 
-def main(input_manifest: str, vcf_dir: str, output_vcf: str, output_script: str, tempdir: str) -> None:
+def main(
+    input_manifest: str,
+    vcf_dir: str,
+    fragment_sizes: str,
+    output_vcf: str,
+    output_script: str,
+    tempdir: str,
+) -> None:
     """
     Generate a script to run gcloud compose commands based on the input manifest.
 
     Args:
         input_manifest (str): Path to the input manifest file containing VCF fragments.
         vcf_dir (str): directory containing VCF fragments
+        fragment_sizes (str): `gcloud storage ls -l` output for vcf_dir, used to skip empty fragments
         output_vcf (str): Path to the final composition product.
         output_script (str): Path to the output script file to be generated.
         tempdir (str): Temporary GCP directory for intermediate files.
     """
 
-    vcf_fragments = []
     with open(input_manifest) as read_handle:
-        vcf_fragments = [os.path.join(vcf_dir, line.strip()) for line in read_handle if line.strip()]
+        fragment_names = [line.strip() for line in read_handle if line.strip()]
+
+    sizes = read_fragment_sizes(fragment_sizes)
+    if missing := [name for name in fragment_names if name not in sizes]:
+        raise ValueError(f'{len(missing)} fragments in the manifest were not found in {vcf_dir}: {missing[:10]}')
+
+    if empty := [name for name in fragment_names if sizes[name] <= BGZF_EOF_BYTES]:
+        loguru.logger.info(f'Skipping {len(empty)} empty fragments: {empty}')
+
+    vcf_fragments = [os.path.join(vcf_dir, name) for name in fragment_names if sizes[name] > BGZF_EOF_BYTES]
 
     if not vcf_fragments:
         raise ValueError('Input manifest is empty or contains no valid VCF fragments.')
@@ -67,6 +98,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate a script to run gcloud compose commands.')
     parser.add_argument('--input', required=True, help='Path to fragments and fragment manifest file.')
     parser.add_argument('--vcf_dir', required=True, help='Directory containing manifest/fragments.')
+    parser.add_argument('--sizes', required=True, help='gcloud storage ls -l output for the fragment directory.')
     parser.add_argument('--output', required=True, help='Output path for the final VCF.')
     parser.add_argument('--script', required=True, help='Output filename for the generated script.')
     parser.add_argument('--tmp', required=True, help='tmp directory for intermediate files.')
@@ -74,6 +106,7 @@ if __name__ == '__main__':
     main(
         input_manifest=args.input,
         vcf_dir=args.vcf_dir,
+        fragment_sizes=args.sizes,
         output_vcf=args.output,
         output_script=args.script,
         tempdir=args.tmp,

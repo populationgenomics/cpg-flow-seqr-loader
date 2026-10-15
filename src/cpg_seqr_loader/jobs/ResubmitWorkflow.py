@@ -27,7 +27,7 @@ def submission_python_job(output_path: str):
         dataset=config_dict['workflow']['dataset'],
         image=config_dict['workflow']['driver_image'],
         output_dir='',
-        script=['full_workflow'],
+        script=[config_dict['workflow'].get('post_combiner_workflow', 'full_workflow')],
         description='',
         access_level=config_dict['workflow']['access_level'],
         config=['config.toml'],
