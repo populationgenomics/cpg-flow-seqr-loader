@@ -24,6 +24,7 @@ dependencies=[
     'analysis-runner>=3.3.0',
     'cpg-flow~=1.3',
     'elasticsearch==8.*',
+    'pysam',
 ]
 
 [project.urls]
