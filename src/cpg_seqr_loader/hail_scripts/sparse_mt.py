@@ -412,8 +412,8 @@ def default_compute_info(
         for VQSR.
     :param ac_filter_groups: Optional dictionary of sample filter expressions to compute
         additional groupings of ACs. Default is None.
-    :return: Table with info fields
-    :rtype: Table
+    :return: Tuple of (Table with info fields, set of allele-specific field names in the info struct)
+    :rtype: tuple[Table, set[str]]
     """
     if not site_annotations and not as_annotations and not quasi_as_annotations:
         raise ValueError(
@@ -452,8 +452,10 @@ def default_compute_info(
         # Add allele specific pab_max
         info_expr = info_expr.annotate(AS_pab_max=pab_max_expr(mt.LGT, mt.LAD, mt.LA, hl.len(mt.alleles)))
 
+    site_fields = set()
     if site_annotations:
         site_expr = get_site_info_expr(mt)
+        site_fields = {f for f, _ in site_expr.dtype.items()}
         info_expr = site_expr if info_expr is None else info_expr.annotate(**site_expr)
 
     # Add 'AC' and 'AC_raw' for each allele count filter group requested.
@@ -483,6 +485,8 @@ def default_compute_info(
         **{f'AC{"_" + f if f else f}': grp.map(lambda i: hl.int32(i.get(True, 0))) for f, grp in grp_ac_expr.items()},
     )
 
+    as_info_fields = {f for f, _ in info_expr.dtype.items()} - site_fields
+
     ann_expr = {'info': info_expr}
     if quasi_info_expr is not None:
         ann_expr['quasi_info'] = quasi_info_expr
@@ -511,4 +515,4 @@ def default_compute_info(
     if n_partitions is not None:
         info_ht = info_ht.naive_coalesce(n_partitions)
 
-    return info_ht
+    return info_ht, as_info_fields
