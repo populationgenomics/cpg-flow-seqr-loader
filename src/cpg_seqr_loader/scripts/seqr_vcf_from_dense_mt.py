@@ -49,8 +49,12 @@ def main(mt_path: str, vqsr_vcf: str, id_map_file: str, output: str) -> None:
     # only the FILTER column is used, so the INFO fields (some of which Hail can't parse) are never read
     vqsr_ht = hl.import_vcf(vqsr_vcf, reference_genome=hail_batch.genome_build(), force_bgz=True).rows()
 
+    # see https://github.com/populationgenomics/cpg-flow-seqr-loader/blob/main/src/cpg_seqr_loader/scripts/annotate_cohort.py#L93
+    # pre-emptively strips out fields Hail can't parse correctly, prior to their use
+    mini_ht = vqsr_ht.annotate(info=vqsr_ht.info.drop(*[f for f in vqsr_ht.info if (f.startswith('AS_') or f == 'SB')]))
+
     # same treatment as AnnotateCohort: PASS is dropped from the set, and an empty set is written as PASS
-    mt = mt.select_rows(filters=vqsr_ht[mt.row_key].filters.filter(lambda val: val != 'PASS'))
+    mt = mt.select_rows(filters=mini_ht[mt.row_key].filters.filter(lambda val: val != 'PASS'))
     mt = mt.select_entries('GT', 'AD', 'GQ')
     mt = mt.key_cols_by(s=hl.literal(sg_to_participant)[mt.s])
 
